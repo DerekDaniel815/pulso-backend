@@ -7,6 +7,8 @@ export default defineConfig({
     path: 'prisma/migrations',
   },
   datasource: {
-    url: env('DATABASE_URL'),
+    // Neon recomienda una conexión directa para migraciones. En local seguimos
+    // usando DATABASE_URL, por lo que Docker no necesita ningún cambio.
+    url: process.env.DIRECT_URL ?? env('DATABASE_URL'),
   },
 });
