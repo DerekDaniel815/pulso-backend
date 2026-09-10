@@ -12,6 +12,8 @@ import {
   TipoReferencia,
   VisibilidadPreferida,
 } from '../common/enums.js';
+import { LocationAccessService } from '../locations/location-access.service.js';
+import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateUserDeviceDto } from './dto/create-user-device.dto.js';
@@ -23,6 +25,8 @@ export class UserDevicesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly locationAccessService: LocationAccessService,
+    private readonly locationRealtimeNotifier: LocationRealtimeNotifier,
   ) {}
 
   async assign(idUsuario: number, dto: CreateUserDeviceDto): Promise<UserDeviceResponseDto> {
@@ -110,6 +114,8 @@ export class UserDevicesService {
       throw new BadRequestException('No se puede actualizar una asignación desvinculada');
     }
 
+    const previousAudience = await this.locationAccessService.getPublicAudience(current);
+
     const updated = await this.prisma.usuarioDispositivo.update({
       where: { idUsuarioDispositivo },
       data: {
@@ -119,6 +125,9 @@ export class UserDevicesService {
       },
       include: { dispositivo: true },
     });
+
+    const nextAudience = await this.locationAccessService.getPublicAudience(updated);
+    this.locationRealtimeNotifier.notifyIfPublicAudienceLost(previousAudience, nextAudience);
 
     return toUserDeviceResponse(updated);
   }

@@ -13,6 +13,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { UsersService } from '../users/users.service.js';
 import type {
   EmergencyPublicUpdatedPayload,
+  LocationPublicRemovedPayload,
   LocationPublicUpdatedPayload,
   LocationUpdatedPayload,
 } from './location-updated.payload.js';
@@ -85,6 +86,10 @@ export class LocationsRealtimeGateway implements OnGatewayConnection, OnGatewayD
 
   emitEmergencyPublicEnded(payload: { codigoPublico: string; estado: string }): void {
     this.server.to('public:locations').emit('emergency.public.ended', payload);
+  }
+
+  emitLocationPublicRemoved(payload: LocationPublicRemovedPayload): void {
+    this.server.to('public:locations').emit('location.public.removed', payload);
   }
 
   private async authenticate(client: Socket): Promise<AuthenticatedUser> {

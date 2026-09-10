@@ -30,6 +30,7 @@ describe('LocationRealtimeNotifier', () => {
     emitLocationPublicUpdated: ReturnType<typeof vi.fn>;
     emitEmergencyPublicUpdated: ReturnType<typeof vi.fn>;
     emitEmergencyPublicEnded: ReturnType<typeof vi.fn>;
+    emitLocationPublicRemoved: ReturnType<typeof vi.fn>;
   };
   let notifier: LocationRealtimeNotifier;
 
@@ -39,6 +40,7 @@ describe('LocationRealtimeNotifier', () => {
       emitLocationPublicUpdated: vi.fn(),
       emitEmergencyPublicUpdated: vi.fn(),
       emitEmergencyPublicEnded: vi.fn(),
+      emitLocationPublicRemoved: vi.fn(),
     };
     notifier = new LocationRealtimeNotifier(gateway as unknown as LocationsRealtimeGateway);
   });
@@ -67,5 +69,23 @@ describe('LocationRealtimeNotifier', () => {
 
     expect(gateway.emitLocationUpdated).toHaveBeenCalledWith([1, 2], payload);
     expect(gateway.emitLocationPublicUpdated).toHaveBeenCalledWith(publicPayload);
+  });
+
+  it('emite location.public.removed solo si deja de ser público', () => {
+    notifier.notifyIfPublicAudienceLost(
+      { isPublic: true, clavePublica: 'VIS-10' },
+      { isPublic: false },
+    );
+
+    expect(gateway.emitLocationPublicRemoved).toHaveBeenCalledWith({ clavePublica: 'VIS-10' });
+  });
+
+  it('no emite location.public.removed si sigue público por SOS', () => {
+    notifier.notifyIfPublicAudienceLost(
+      { isPublic: true, clavePublica: 'VIS-10' },
+      { isPublic: true },
+    );
+
+    expect(gateway.emitLocationPublicRemoved).not.toHaveBeenCalled();
   });
 });

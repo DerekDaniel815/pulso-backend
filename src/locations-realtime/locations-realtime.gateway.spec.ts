@@ -141,4 +141,14 @@ describe('LocationsRealtimeGateway', () => {
       origen: 'EMERGENCIA',
     }));
   });
+
+  it('emite location.public.removed al room público', () => {
+    const emit = vi.fn();
+    gateway.server = { to: vi.fn().mockReturnValue({ emit }) } as never;
+
+    gateway.emitLocationPublicRemoved({ clavePublica: 'VIS-10' });
+
+    expect(gateway.server.to).toHaveBeenCalledWith('public:locations');
+    expect(emit).toHaveBeenCalledWith('location.public.removed', { clavePublica: 'VIS-10' });
+  });
 });

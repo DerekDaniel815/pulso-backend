@@ -27,3 +27,8 @@ export type EmergencyPublicUpdatedPayload = {
   ubicacion: PublicLocationPointDto | null;
   fechaUltimaUbicacion: string | null;
 };
+
+export type LocationPublicRemovedPayload = {
+  clavePublica: string;
+};
+

@@ -204,6 +204,16 @@ export class EmergenciesService {
     const location = await this.findLatestLocation(updated.idUsuarioDispositivo);
     this.locationRealtimeNotifier.notifyEmergencyPublicEnded(updated.codigoPublico);
     await this.locationsService.publishLatestForAssignment(updated.idUsuarioDispositivo);
+
+    const assignment = emergency.usuarioDispositivo;
+    const publicAudience = await this.locationAccessService.getPublicAudience(assignment);
+
+    if (!publicAudience.isPublic) {
+      this.locationRealtimeNotifier.notifyLocationPublicRemoved(
+        `VIS-${assignment.idUsuarioDispositivo}`,
+      );
+    }
+
     return toEmergencyResponse(updated, location);
   }
 

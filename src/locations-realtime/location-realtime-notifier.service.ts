@@ -45,4 +45,18 @@ export class LocationRealtimeNotifier {
     this.logger.log(`[WS EMERGENCY PUBLIC] ended ${codigoPublico}`);
     this.gateway.emitEmergencyPublicEnded({ codigoPublico, estado: 'FINALIZADA' });
   }
+
+  notifyLocationPublicRemoved(clavePublica: string): void {
+    this.logger.log(`[WS LOCATION PUBLIC] removed ${clavePublica}`);
+    this.gateway.emitLocationPublicRemoved({ clavePublica });
+  }
+
+  notifyIfPublicAudienceLost(previous: {
+    isPublic: boolean;
+    clavePublica: string | null;
+  }, next: { isPublic: boolean }): void {
+    if (previous.isPublic && !next.isPublic && previous.clavePublica) {
+      this.notifyLocationPublicRemoved(previous.clavePublica);
+    }
+  }
 }
