@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: pulso-backend-demo
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:render
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        sync: false
+      - key: ENABLE_DEVICE_SIMULATION
+        value: "true"
+      - key: SIMULATION_LEASE_SECONDS
+        value: "45"
+      - key: SIMULATION_EXPIRE_INTERVAL_MS
+        value: "10000"

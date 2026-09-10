@@ -1,0 +1,79 @@
+export enum RolSistema {
+  USUARIO = 'USUARIO',
+  ADMIN = 'ADMIN',
+}
+
+export enum EstadoDispositivo {
+  FABRICADO = 'FABRICADO',
+  DISPONIBLE = 'DISPONIBLE',
+  ASIGNADO = 'ASIGNADO',
+  MANTENIMIENTO = 'MANTENIMIENTO',
+  BAJA = 'BAJA',
+}
+
+export enum VisibilidadPreferida {
+  SOLO_YO = 'SOLO_YO',
+  GRUPO = 'GRUPO',
+  PUBLICO = 'PUBLICO',
+}
+
+export enum EstadoContacto {
+  PENDIENTE = 'PENDIENTE',
+  ACEPTADO = 'ACEPTADO',
+  RECHAZADO = 'RECHAZADO',
+  CANCELADO = 'CANCELADO',
+  ELIMINADO = 'ELIMINADO',
+}
+
+export enum RolGrupo {
+  ADMIN = 'ADMIN',
+  MIEMBRO = 'MIEMBRO',
+}
+
+export enum EstadoInvitacion {
+  PENDIENTE = 'PENDIENTE',
+  ACEPTADA = 'ACEPTADA',
+  RECHAZADA = 'RECHAZADA',
+  CANCELADA = 'CANCELADA',
+}
+
+export enum EstadoEmergencia {
+  ACTIVA = 'ACTIVA',
+  FINALIZADA = 'FINALIZADA',
+}
+
+export enum EstadoSimulationSession {
+  ACTIVA = 'ACTIVA',
+  EXPIRADA = 'EXPIRADA',
+  FINALIZADA = 'FINALIZADA',
+}
+
+export enum ActivadaDesde {
+  DISPOSITIVO = 'DISPOSITIVO',
+  APP = 'APP',
+  WEB = 'WEB',
+}
+
+export enum TipoNotificacion {
+  EMERGENCIA = 'EMERGENCIA',
+  INVITACION_GRUPO = 'INVITACION_GRUPO',
+  NUEVO_MIEMBRO = 'NUEVO_MIEMBRO',
+  DISPOSITIVO_VINCULADO = 'DISPOSITIVO_VINCULADO',
+  CAMBIO_VISIBILIDAD = 'CAMBIO_VISIBILIDAD',
+  SOLICITUD_CONTACTO = 'SOLICITUD_CONTACTO',
+  CONTACTO_AGREGADO = 'CONTACTO_AGREGADO',
+}
+
+export enum AlcanceNotificacion {
+  USUARIO = 'USUARIO',
+  GRUPO = 'GRUPO',
+  PUBLICO = 'PUBLICO',
+}
+
+export enum TipoReferencia {
+  EMERGENCIA = 'EMERGENCIA',
+  GRUPO = 'GRUPO',
+  INVITACION = 'INVITACION',
+  DISPOSITIVO = 'DISPOSITIVO',
+  CONTACTO = 'CONTACTO',
+}

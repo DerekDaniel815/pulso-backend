@@ -1,0 +1,256 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RolSistema {
+  USUARIO
+  ADMIN
+}
+
+enum EstadoSimulationSession {
+  ACTIVA
+  EXPIRADA
+  FINALIZADA
+}
+
+model Usuario {
+  idUsuario          Int        @id @default(autoincrement()) @map("id_usuario")
+  nombres            String     @db.VarChar(100)
+  apellidos          String     @db.VarChar(100)
+  correo             String     @unique @db.VarChar(150)
+  telefono           String?    @db.VarChar(30)
+  passwordHash       String     @map("password_hash") @db.VarChar(255)
+  rol                RolSistema @default(USUARIO)
+  estado             Boolean    @default(true)
+  fechaRegistro      DateTime @default(now()) @map("fecha_registro") @db.Timestamptz(6)
+  fechaActualizacion DateTime @default(now()) @updatedAt @map("fecha_actualizacion") @db.Timestamptz(6)
+
+  contactosComoUsuario1 UsuarioContacto[]      @relation("ContactoUsuario1")
+  contactosComoUsuario2 UsuarioContacto[]      @relation("ContactoUsuario2")
+  contactosSolicitados  UsuarioContacto[]      @relation("ContactoSolicitante")
+  asignaciones          UsuarioDispositivo[]
+  gruposCreados         Grupo[]
+  grupos                GrupoUsuario[]
+  invitacionesEnviadas  GrupoInvitacion[]      @relation("InvitacionInvitador")
+  invitacionesRecibidas GrupoInvitacion[]      @relation("InvitacionInvitado")
+  notificaciones        NotificacionUsuario[]
+  simulationSessions    SimulationSession[]
+
+  @@map("usuario")
+}
+
+/// Una sola fila representa el contacto entre dos usuarios.
+/// id_usuario_1 siempre es el ID menor para evitar duplicados (1,2) y (2,1).
+/// estado: PENDIENTE | ACEPTADO | RECHAZADO | CANCELADO | ELIMINADO
+model UsuarioContacto {
+  idUsuarioContacto         Int       @id @default(autoincrement()) @map("id_usuario_contacto")
+  idUsuario1                Int       @map("id_usuario_1")
+  idUsuario2                Int       @map("id_usuario_2")
+  idUsuarioSolicitante      Int       @map("id_usuario_solicitante")
+  estado                    String    @default("PENDIENTE") @db.VarChar(20)
+  usuario1ComparteUbicacion Boolean   @default(false) @map("usuario_1_comparte_ubicacion")
+  usuario2ComparteUbicacion Boolean   @default(false) @map("usuario_2_comparte_ubicacion")
+  fechaSolicitud            DateTime  @default(now()) @map("fecha_solicitud") @db.Timestamptz(6)
+  fechaRespuesta            DateTime? @map("fecha_respuesta") @db.Timestamptz(6)
+  fechaActualizacion        DateTime  @default(now()) @updatedAt @map("fecha_actualizacion") @db.Timestamptz(6)
+
+  usuario1    Usuario @relation("ContactoUsuario1", fields: [idUsuario1], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_contacto_usuario_1")
+  usuario2    Usuario @relation("ContactoUsuario2", fields: [idUsuario2], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_contacto_usuario_2")
+  solicitante Usuario @relation("ContactoSolicitante", fields: [idUsuarioSolicitante], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_contacto_solicitante")
+
+  @@unique([idUsuario1, idUsuario2], map: "uq_usuario_contacto")
+  @@index([idUsuario1, estado], map: "ix_usuario_contacto_usuario_1")
+  @@index([idUsuario2, estado], map: "ix_usuario_contacto_usuario_2")
+  @@map("usuario_contacto")
+}
+
+/// estado: FABRICADO | DISPONIBLE | ASIGNADO | MANTENIMIENTO | BAJA
+model Dispositivo {
+  idDispositivo     Int       @id @default(autoincrement()) @map("id_dispositivo")
+  codigoDispositivo String    @unique @map("codigo_dispositivo") @db.VarChar(50)
+  imei              String?   @unique @db.VarChar(30)
+  modelo            String?   @db.VarChar(100)
+  numeroSerie       String?   @unique @map("numero_serie") @db.VarChar(100)
+  estado            String    @default("FABRICADO") @db.VarChar(30)
+  tokenHash         String?   @unique @map("token_hash") @db.VarChar(64)
+  ultimaConexion    DateTime? @map("ultima_conexion") @db.Timestamptz(6)
+  fechaFabricacion  DateTime? @map("fecha_fabricacion") @db.Timestamptz(6)
+  fechaRegistro     DateTime  @default(now()) @map("fecha_registro") @db.Timestamptz(6)
+
+  asignaciones UsuarioDispositivo[]
+
+  @@map("dispositivo")
+}
+
+/// Historial de asignaciones. Un dispositivo solo puede tener UNA activa (estado = true).
+/// visibilidadPreferida: SOLO_YO | GRUPO | PUBLICO
+model UsuarioDispositivo {
+  idUsuarioDispositivo Int       @id @default(autoincrement()) @map("id_usuario_dispositivo")
+  idUsuario            Int       @map("id_usuario")
+  idDispositivo        Int       @map("id_dispositivo")
+  alias                String?   @db.VarChar(100)
+  ubicacionActiva      Boolean   @default(false) @map("ubicacion_activa")
+  visibilidadPreferida String    @default("SOLO_YO") @map("visibilidad_preferida") @db.VarChar(20)
+  fechaAsignacion      DateTime  @default(now()) @map("fecha_asignacion") @db.Timestamptz(6)
+  fechaDesvinculacion  DateTime? @map("fecha_desvinculacion") @db.Timestamptz(6)
+  estado               Boolean   @default(true)
+
+  usuario     Usuario      @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_usuario_dispositivo_usuario")
+  dispositivo Dispositivo  @relation(fields: [idDispositivo], references: [idDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_usuario_dispositivo_dispositivo")
+  ubicaciones         Ubicacion[]
+  emergencias         Emergencia[]
+  simulationSessions  SimulationSession[]
+
+  @@unique([idDispositivo], map: "ux_dispositivo_asignacion_activa", where: raw("(estado = true)"))
+  @@map("usuario_dispositivo")
+}
+
+model Grupo {
+  idGrupo       Int      @id @default(autoincrement()) @map("id_grupo")
+  nombre        String   @db.VarChar(100)
+  descripcion   String?  @db.VarChar(500)
+  idCreador     Int      @map("id_creador")
+  estado        Boolean  @default(true)
+  fechaCreacion DateTime @default(now()) @map("fecha_creacion") @db.Timestamptz(6)
+
+  creador      Usuario           @relation(fields: [idCreador], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_grupo_creador")
+  miembros     GrupoUsuario[]
+  invitaciones GrupoInvitacion[]
+
+  @@map("grupo")
+}
+
+/// rol: ADMIN | MIEMBRO
+model GrupoUsuario {
+  idGrupoUsuario Int      @id @default(autoincrement()) @map("id_grupo_usuario")
+  idGrupo        Int      @map("id_grupo")
+  idUsuario      Int      @map("id_usuario")
+  rol            String   @default("MIEMBRO") @db.VarChar(20)
+  fechaIngreso   DateTime @default(now()) @map("fecha_ingreso") @db.Timestamptz(6)
+  estado         Boolean  @default(true)
+
+  grupo   Grupo   @relation(fields: [idGrupo], references: [idGrupo], onDelete: NoAction, onUpdate: NoAction, map: "fk_grupo_usuario_grupo")
+  usuario Usuario @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_grupo_usuario_usuario")
+
+  @@unique([idGrupo, idUsuario], map: "uq_grupo_usuario")
+  @@map("grupo_usuario")
+}
+
+/// estado: PENDIENTE | ACEPTADA | RECHAZADA | CANCELADA
+model GrupoInvitacion {
+  idInvitacion       Int       @id @default(autoincrement()) @map("id_invitacion")
+  idGrupo            Int       @map("id_grupo")
+  idUsuarioInvitador Int       @map("id_usuario_invitador")
+  idUsuarioInvitado  Int       @map("id_usuario_invitado")
+  estado             String    @default("PENDIENTE") @db.VarChar(20)
+  fechaInvitacion    DateTime  @default(now()) @map("fecha_invitacion") @db.Timestamptz(6)
+  fechaRespuesta     DateTime? @map("fecha_respuesta") @db.Timestamptz(6)
+
+  grupo     Grupo   @relation(fields: [idGrupo], references: [idGrupo], onDelete: NoAction, onUpdate: NoAction, map: "fk_invitacion_grupo")
+  invitador Usuario @relation("InvitacionInvitador", fields: [idUsuarioInvitador], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_invitacion_usuario_invitador")
+  invitado  Usuario @relation("InvitacionInvitado", fields: [idUsuarioInvitado], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_invitacion_usuario_invitado")
+
+  @@unique([idGrupo, idUsuarioInvitado], map: "ux_invitacion_pendiente", where: raw("((estado)::text = 'PENDIENTE'::text)"))
+  @@map("grupo_invitacion")
+}
+
+model Ubicacion {
+  idUbicacion            BigInt   @id @default(autoincrement()) @map("id_ubicacion")
+  idUsuarioDispositivo   Int      @map("id_usuario_dispositivo")
+  latitud                Decimal  @db.Decimal(9, 6)
+  longitud               Decimal  @db.Decimal(10, 6)
+  altitud                Decimal? @db.Decimal(10, 2)
+  precisionGps           Decimal? @map("precision_gps") @db.Decimal(10, 2)
+  velocidad              Decimal? @db.Decimal(10, 2)
+  fechaHoraDispositivo   DateTime @map("fecha_hora_dispositivo") @db.Timestamptz(6)
+  fechaHoraServidor      DateTime @default(now()) @map("fecha_hora_servidor") @db.Timestamptz(6)
+  fueSincronizadaOffline Boolean  @default(false) @map("fue_sincronizada_offline")
+
+  usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_ubicacion_usuario_dispositivo")
+
+  @@index([idUsuarioDispositivo, fechaHoraDispositivo(sort: Desc)], map: "ix_ubicacion_asignacion_fecha")
+  @@map("ubicacion")
+}
+
+/// estado: ACTIVA | FINALIZADA
+/// activadaDesde: DISPOSITIVO | APP | WEB
+model Emergencia {
+  idEmergencia         BigInt    @id @default(autoincrement()) @map("id_emergencia")
+  codigoPublico        String    @unique @map("codigo_publico") @db.VarChar(30)
+  idUsuarioDispositivo Int       @map("id_usuario_dispositivo")
+  idSimulationSession  Int?      @map("id_simulation_session")
+  tipo                 String?   @db.VarChar(50)
+  estado               String    @default("ACTIVA") @db.VarChar(20)
+  fechaInicio          DateTime  @default(now()) @map("fecha_inicio") @db.Timestamptz(6)
+  fechaFin             DateTime? @map("fecha_fin") @db.Timestamptz(6)
+  activadaDesde        String    @map("activada_desde") @db.VarChar(20)
+  descripcion          String?   @db.VarChar(500)
+
+  usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_emergencia_usuario_dispositivo")
+  simulationSession  SimulationSession? @relation(fields: [idSimulationSession], references: [idSimulationSession], onDelete: NoAction, onUpdate: NoAction, map: "fk_emergencia_simulation_session")
+
+  @@index([estado], map: "ix_emergencia_estado")
+  @@index([idSimulationSession], map: "ix_emergencia_simulation_session")
+  @@map("emergencia")
+}
+
+model SimulationSession {
+  idSimulationSession   Int                     @id @default(autoincrement()) @map("id_simulation_session")
+  idUsuario             Int                     @map("id_usuario")
+  idUsuarioDispositivo  Int                     @map("id_usuario_dispositivo")
+  estado                EstadoSimulationSession @default(ACTIVA)
+  ultimaActividad       DateTime                @map("ultima_actividad") @db.Timestamptz(6)
+  expiraEn              DateTime                @map("expira_en") @db.Timestamptz(6)
+  fechaInicio           DateTime                @default(now()) @map("fecha_inicio") @db.Timestamptz(6)
+  fechaFin              DateTime?               @map("fecha_fin") @db.Timestamptz(6)
+  ubicacionActivaPrevia Boolean                 @map("ubicacion_activa_previa")
+  habilitoUbicacionActiva Boolean               @default(false) @map("habilito_ubicacion_activa")
+
+  usuario            Usuario            @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_simulation_session_usuario")
+  usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_simulation_session_usuario_dispositivo")
+  emergencias        Emergencia[]
+
+  @@index([estado, expiraEn], map: "ix_simulation_session_expire")
+  @@index([idUsuarioDispositivo, estado], map: "ix_simulation_session_assignment_estado")
+  @@unique([idUsuarioDispositivo], map: "ux_simulation_session_activa", where: raw("\"estado\" = 'ACTIVA'::\"EstadoSimulationSession\""))
+  @@map("simulation_session")
+}
+
+/// tipo: EMERGENCIA | INVITACION_GRUPO | NUEVO_MIEMBRO | DISPOSITIVO_VINCULADO | CAMBIO_VISIBILIDAD | SOLICITUD_CONTACTO | CONTACTO_AGREGADO
+/// alcance: USUARIO | GRUPO | PUBLICO
+/// tipoReferencia: EMERGENCIA | GRUPO | INVITACION | DISPOSITIVO | CONTACTO
+model Notificacion {
+  idNotificacion BigInt   @id @default(autoincrement()) @map("id_notificacion")
+  tipo           String   @db.VarChar(30)
+  alcance        String   @db.VarChar(20)
+  titulo         String   @db.VarChar(150)
+  mensaje        String?  @db.VarChar(1000)
+  tipoReferencia String?  @map("tipo_referencia") @db.VarChar(30)
+  idReferencia   BigInt?  @map("id_referencia")
+  fechaCreacion  DateTime @default(now()) @map("fecha_creacion") @db.Timestamptz(6)
+
+  destinatarios NotificacionUsuario[]
+
+  @@map("notificacion")
+}
+
+model NotificacionUsuario {
+  idNotificacionUsuario BigInt    @id @default(autoincrement()) @map("id_notificacion_usuario")
+  idNotificacion        BigInt    @map("id_notificacion")
+  idUsuario             Int       @map("id_usuario")
+  leida                 Boolean   @default(false)
+  fechaLectura          DateTime? @map("fecha_lectura") @db.Timestamptz(6)
+
+  notificacion Notificacion @relation(fields: [idNotificacion], references: [idNotificacion], onDelete: Cascade, onUpdate: NoAction, map: "fk_notificacion_usuario_notificacion")
+  usuario      Usuario      @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_notificacion_usuario_usuario")
+
+  @@unique([idNotificacion, idUsuario], map: "uq_notificacion_usuario")
+  @@index([idUsuario, leida], map: "ix_notificacion_usuario_usuario")
+  @@map("notificacion_usuario")
+}
