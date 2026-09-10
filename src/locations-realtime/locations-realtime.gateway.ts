@@ -11,7 +11,11 @@ import { corsOrigins } from '../common/config/cors.js';
 import { RolSistema } from '../common/enums.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { UsersService } from '../users/users.service.js';
-import type { LocationUpdatedPayload } from './location-updated.payload.js';
+import type {
+  EmergencyPublicUpdatedPayload,
+  LocationPublicUpdatedPayload,
+  LocationUpdatedPayload,
+} from './location-updated.payload.js';
 
 type JwtPayload = {
   sub: number;
@@ -45,8 +49,10 @@ export class LocationsRealtimeGateway implements OnGatewayConnection, OnGatewayD
       client.data.user = user;
       const room = `user:${user.idUsuario}`;
       await client.join(room);
+      await client.join('public:locations');
       this.logger.log(`[WS] authenticated userId=${user.idUsuario}`);
       this.logger.log(`[WS] joined room ${room}`);
+      this.logger.log('[WS] joined room public:locations');
     } catch {
       client.disconnect(true);
     }
@@ -63,8 +69,22 @@ export class LocationsRealtimeGateway implements OnGatewayConnection, OnGatewayD
     this.logger.log('[WS] disconnected');
   }
 
-  emitLocationUpdated(idUsuario: number, payload: LocationUpdatedPayload): void {
-    this.server.to(`user:${idUsuario}`).emit('location.updated', payload);
+  emitLocationUpdated(userIds: number[], payload: LocationUpdatedPayload): void {
+    for (const idUsuario of new Set(userIds)) {
+      this.server.to(`user:${idUsuario}`).emit('location.updated', payload);
+    }
+  }
+
+  emitLocationPublicUpdated(payload: LocationPublicUpdatedPayload): void {
+    this.server.to('public:locations').emit('location.public.updated', payload);
+  }
+
+  emitEmergencyPublicUpdated(payload: EmergencyPublicUpdatedPayload): void {
+    this.server.to('public:locations').emit('emergency.public.updated', payload);
+  }
+
+  emitEmergencyPublicEnded(payload: { codigoPublico: string; estado: string }): void {
+    this.server.to('public:locations').emit('emergency.public.ended', payload);
   }
 
   private async authenticate(client: Socket): Promise<AuthenticatedUser> {

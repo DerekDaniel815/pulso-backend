@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { LocationsRealtimeGateway } from './locations-realtime.gateway.js';
-import type { LocationUpdatedPayload } from './location-updated.payload.js';
+import type {
+  EmergencyPublicUpdatedPayload,
+  LocationPublicUpdatedPayload,
+  LocationUpdatedPayload,
+} from './location-updated.payload.js';
 
 @Injectable()
 export class LocationRealtimeNotifier {
@@ -8,17 +12,37 @@ export class LocationRealtimeNotifier {
 
   constructor(private readonly gateway: LocationsRealtimeGateway) {}
 
-  notifyLocationSaved(payload: LocationUpdatedPayload): void {
+  notifyLocationSaved(
+    payload: LocationUpdatedPayload,
+    viewerUserIds: number[],
+    publicPayload?: LocationPublicUpdatedPayload,
+  ): void {
+    const uniqueViewerIds = [...new Set(viewerUserIds)];
+
     this.logger.log(
       `[WS LOCATION] emit ${JSON.stringify({
         idUsuarioDispositivo: payload.assignment.idUsuarioDispositivo,
-        idUsuario: payload.assignment.idUsuario,
-        codigoDispositivo: payload.assignment.codigoDispositivo,
+        viewers: uniqueViewerIds,
+        public: publicPayload != null,
         latitud: payload.location.latitud,
         longitud: payload.location.longitud,
       })}`,
     );
 
-    this.gateway.emitLocationUpdated(payload.assignment.idUsuario, payload);
+    this.gateway.emitLocationUpdated(uniqueViewerIds, payload);
+
+    if (publicPayload) {
+      this.gateway.emitLocationPublicUpdated(publicPayload);
+    }
+  }
+
+  notifyEmergencyPublicUpdated(payload: EmergencyPublicUpdatedPayload): void {
+    this.logger.log(`[WS EMERGENCY PUBLIC] ${payload.estado} ${payload.codigoPublico}`);
+    this.gateway.emitEmergencyPublicUpdated(payload);
+  }
+
+  notifyEmergencyPublicEnded(codigoPublico: string): void {
+    this.logger.log(`[WS EMERGENCY PUBLIC] ended ${codigoPublico}`);
+    this.gateway.emitEmergencyPublicEnded({ codigoPublico, estado: 'FINALIZADA' });
   }
 }

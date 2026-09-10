@@ -72,6 +72,7 @@ describe('LocationsRealtimeGateway', () => {
     expect(usersService.findActiveById).toHaveBeenCalledWith(1);
     expect(client.data.user?.idUsuario).toBe(1);
     expect(client.join).toHaveBeenCalledWith('user:1');
+    expect(client.join).toHaveBeenCalledWith('public:locations');
     expect(client.disconnect).not.toHaveBeenCalled();
   });
 
@@ -86,11 +87,11 @@ describe('LocationsRealtimeGateway', () => {
     expect(client.join).not.toHaveBeenCalled();
   });
 
-  it('emite location.updated solo a la room del propietario', () => {
+  it('emite location.updated a cada room de viewer autorizado', () => {
     const emit = vi.fn();
     gateway.server = { to: vi.fn().mockReturnValue({ emit }) } as never;
 
-    gateway.emitLocationUpdated(1, {
+    gateway.emitLocationUpdated([1, 2, 1], {
       location: {
         idUbicacion: '6',
         idUsuarioDispositivo: 1,
@@ -112,8 +113,32 @@ describe('LocationsRealtimeGateway', () => {
     });
 
     expect(gateway.server.to).toHaveBeenCalledWith('user:1');
+    expect(gateway.server.to).toHaveBeenCalledWith('user:2');
+    expect(emit).toHaveBeenCalledTimes(2);
     expect(emit).toHaveBeenCalledWith('location.updated', expect.objectContaining({
       assignment: expect.objectContaining({ idUsuario: 1 }),
+    }));
+  });
+
+  it('emite location.public.updated al room público', () => {
+    const emit = vi.fn();
+    gateway.server = { to: vi.fn().mockReturnValue({ emit }) } as never;
+
+    gateway.emitLocationPublicUpdated({
+      clavePublica: 'EME-ABC',
+      origen: 'EMERGENCIA',
+      codigoPublico: 'EME-ABC',
+      ubicacion: {
+        latitud: 4.6,
+        longitud: -74.08,
+        altitud: null,
+        fechaHoraDispositivo: '2026-09-10T06:00:00.000Z',
+      },
+    });
+
+    expect(gateway.server.to).toHaveBeenCalledWith('public:locations');
+    expect(emit).toHaveBeenCalledWith('location.public.updated', expect.objectContaining({
+      origen: 'EMERGENCIA',
     }));
   });
 });

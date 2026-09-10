@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { LocationAccessService } from './location-access.service.js';
 import { LocationsService } from './locations.service.js';
 
 const savedRow = {
@@ -44,7 +43,11 @@ describe('LocationsService realtime', () => {
     notifier = { notifyLocationSaved: vi.fn() };
     service = new LocationsService(
       prisma as unknown as PrismaService,
-      {} as LocationAccessService,
+      {
+        getAuthorizedPrivateViewerUserIds: vi.fn().mockResolvedValue([1]),
+        getPublicAudience: vi.fn().mockResolvedValue({ isPublic: false }),
+        hasActiveEmergency: vi.fn().mockResolvedValue(false),
+      } as never,
       notifier as unknown as LocationRealtimeNotifier,
     );
   });
@@ -65,21 +68,26 @@ describe('LocationsService realtime', () => {
     });
 
     expect(notifier.notifyLocationSaved).toHaveBeenCalledOnce();
-    expect(notifier.notifyLocationSaved).toHaveBeenCalledWith({
-      location: expect.objectContaining({
-        idUbicacion: '6',
-        idUsuarioDispositivo: 1,
-        latitud: 37.421998,
-        longitud: -122.084,
-        fueSincronizadaOffline: false,
-      }),
-      assignment: {
-        idUsuarioDispositivo: 1,
-        idUsuario: 1,
-        alias: 'Derek gps simulado',
-        codigoDispositivo: 'PUL-X7K4M92Q',
+    expect(notifier.notifyLocationSaved).toHaveBeenCalledWith(
+      {
+        location: expect.objectContaining({
+          idUbicacion: '6',
+          idUsuarioDispositivo: 1,
+          latitud: 37.421998,
+          longitud: -122.084,
+          fueSincronizadaOffline: false,
+        }),
+        assignment: {
+          idUsuarioDispositivo: 1,
+          idUsuario: 1,
+          alias: 'Derek gps simulado',
+          codigoDispositivo: 'PUL-X7K4M92Q',
+        },
+        emergenciaActiva: false,
       },
-    });
+      [1],
+      undefined,
+    );
   });
 
   it('NO emite cuando createForAssignment recibe una transacción externa', async () => {

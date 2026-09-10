@@ -25,18 +25,47 @@ const payload: LocationUpdatedPayload = {
 };
 
 describe('LocationRealtimeNotifier', () => {
-  let gateway: { emitLocationUpdated: ReturnType<typeof vi.fn> };
+  let gateway: {
+    emitLocationUpdated: ReturnType<typeof vi.fn>;
+    emitLocationPublicUpdated: ReturnType<typeof vi.fn>;
+    emitEmergencyPublicUpdated: ReturnType<typeof vi.fn>;
+    emitEmergencyPublicEnded: ReturnType<typeof vi.fn>;
+  };
   let notifier: LocationRealtimeNotifier;
 
   beforeEach(() => {
-    gateway = { emitLocationUpdated: vi.fn() };
+    gateway = {
+      emitLocationUpdated: vi.fn(),
+      emitLocationPublicUpdated: vi.fn(),
+      emitEmergencyPublicUpdated: vi.fn(),
+      emitEmergencyPublicEnded: vi.fn(),
+    };
     notifier = new LocationRealtimeNotifier(gateway as unknown as LocationsRealtimeGateway);
   });
 
   it('emite al propietario y no hace broadcast global', () => {
-    notifier.notifyLocationSaved(payload);
+    notifier.notifyLocationSaved(payload, [1]);
 
     expect(gateway.emitLocationUpdated).toHaveBeenCalledOnce();
-    expect(gateway.emitLocationUpdated).toHaveBeenCalledWith(1, payload);
+    expect(gateway.emitLocationUpdated).toHaveBeenCalledWith([1], payload);
+  });
+
+  it('emite location.public.updated cuando hay payload público', () => {
+    const publicPayload = {
+      clavePublica: 'VIS-1',
+      origen: 'PUBLICO' as const,
+      codigoPublico: null,
+      ubicacion: {
+        latitud: 37.42,
+        longitud: -122.08,
+        altitud: null,
+        fechaHoraDispositivo: '2026-09-10T06:00:00.000Z',
+      },
+    };
+
+    notifier.notifyLocationSaved(payload, [1, 2, 2], publicPayload);
+
+    expect(gateway.emitLocationUpdated).toHaveBeenCalledWith([1, 2], payload);
+    expect(gateway.emitLocationPublicUpdated).toHaveBeenCalledWith(publicPayload);
   });
 });

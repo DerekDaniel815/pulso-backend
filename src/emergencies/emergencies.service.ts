@@ -15,6 +15,7 @@ import {
   TipoReferencia,
 } from '../common/enums.js';
 import type { LocationInput } from '../locations/dto/location-input.dto.js';
+import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { LocationAccessService } from '../locations/location-access.service.js';
 import { LocationsService } from '../locations/locations.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -34,6 +35,7 @@ export class EmergenciesService {
     private readonly notificationsService: NotificationsService,
     private readonly locationAccessService: LocationAccessService,
     private readonly locationsService: LocationsService,
+    private readonly locationRealtimeNotifier: LocationRealtimeNotifier,
   ) {}
 
   async create(idUsuario: number, dto: CreateEmergencyDto): Promise<EmergencyResponseDto> {
@@ -94,6 +96,7 @@ export class EmergenciesService {
     });
 
     const location = await this.findLatestLocation(emergency.idUsuarioDispositivo);
+    await this.publishEmergencyRealtime(emergency, location);
     return toEmergencyResponse(emergency, location);
   }
 
@@ -168,6 +171,7 @@ export class EmergenciesService {
     });
 
     const latestLocation = await this.findLatestLocation(emergency.idUsuarioDispositivo);
+    await this.publishEmergencyRealtime(emergency, latestLocation);
     return toEmergencyResponse(emergency, latestLocation);
   }
 
@@ -198,6 +202,8 @@ export class EmergenciesService {
     });
 
     const location = await this.findLatestLocation(updated.idUsuarioDispositivo);
+    this.locationRealtimeNotifier.notifyEmergencyPublicEnded(updated.codigoPublico);
+    await this.locationsService.publishLatestForAssignment(updated.idUsuarioDispositivo);
     return toEmergencyResponse(updated, location);
   }
 
@@ -256,6 +262,27 @@ export class EmergenciesService {
 
   private generatePublicCode() {
     return `EME-${randomBytes(4).toString('hex').toUpperCase()}`;
+  }
+
+  private async publishEmergencyRealtime(
+    emergency: { codigoPublico: string; estado: string; idUsuarioDispositivo: number },
+    location: Awaited<ReturnType<EmergenciesService['findLatestLocation']>>,
+  ): Promise<void> {
+    this.locationRealtimeNotifier.notifyEmergencyPublicUpdated({
+      codigoPublico: emergency.codigoPublico,
+      estado: emergency.estado,
+      ubicacion: location
+        ? {
+            latitud: Number(location.latitud),
+            longitud: Number(location.longitud),
+            altitud: location.altitud == null ? null : Number(location.altitud),
+            fechaHoraDispositivo: location.fechaHoraDispositivo.toISOString(),
+          }
+        : null,
+      fechaUltimaUbicacion: location ? location.fechaHoraDispositivo.toISOString() : null,
+    });
+
+    await this.locationsService.publishLatestForAssignment(emergency.idUsuarioDispositivo);
   }
 
   private async findLatestLocation(idUsuarioDispositivo: number) {

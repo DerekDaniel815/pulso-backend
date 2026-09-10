@@ -48,7 +48,8 @@ describe('EmergenciesService.createForDevice', () => {
       prisma as never,
       { createForUsers: vi.fn() } as never,
       { canViewAssignmentLocation: vi.fn() } as never,
-      { createForAssignment: vi.fn() } as never,
+      { createForAssignment: vi.fn(), publishLatestForAssignment: vi.fn() } as never,
+      { notifyEmergencyPublicUpdated: vi.fn(), notifyEmergencyPublicEnded: vi.fn() } as never,
     );
 
     vi.spyOn(service as never, 'findEmergencyRecipients').mockResolvedValue([]);

@@ -6,11 +6,18 @@ import {
 } from '../common/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
-type AssignmentAccessContext = {
+export type AssignmentAccessContext = {
   idUsuarioDispositivo: number;
   idUsuario: number;
   visibilidadPreferida: string;
   estado: boolean;
+};
+
+export type PublicAudienceContext = {
+  isPublic: boolean;
+  origen: 'PUBLICO' | 'EMERGENCIA' | null;
+  codigoPublico: string | null;
+  clavePublica: string | null;
 };
 
 @Injectable()
@@ -37,25 +44,19 @@ export class LocationAccessService {
       return true;
     }
 
-    if (await this.hasActiveEmergency(assignment.idUsuarioDispositivo)) {
-      return true;
-    }
-
-    const effectiveVisibility = await this.getEffectiveVisibility(assignment);
-
-    if (effectiveVisibility === VisibilidadPreferida.PUBLICO) {
-      return true;
-    }
-
     if (await this.ownerSharesWithContact(assignment.idUsuario, viewerUserId)) {
       return true;
     }
 
     if (
-      effectiveVisibility === VisibilidadPreferida.GRUPO &&
+      assignment.visibilidadPreferida === VisibilidadPreferida.GRUPO &&
       (await this.shareActiveGroup(assignment.idUsuario, viewerUserId))
     ) {
       return true;
+    }
+
+    if (await this.hasActiveEmergency(assignment.idUsuarioDispositivo)) {
+      return this.canViewEmergencyDetails(viewerUserId, assignment.idUsuario);
     }
 
     return false;
@@ -83,7 +84,197 @@ export class LocationAccessService {
     return assignment.visibilidadPreferida as VisibilidadPreferida;
   }
 
-  private async hasActiveEmergency(idUsuarioDispositivo: number): Promise<boolean> {
+  async getAuthorizedPrivateViewerUserIds(idUsuarioDispositivo: number): Promise<number[]> {
+    const assignment = await this.prisma.usuarioDispositivo.findUnique({
+      where: { idUsuarioDispositivo },
+    });
+
+    if (!assignment || !assignment.estado) {
+      return [];
+    }
+
+    return this.collectPrivateViewerUserIds(assignment);
+  }
+
+  async getPublicAudience(
+    assignment: Pick<AssignmentAccessContext, 'idUsuarioDispositivo' | 'visibilidadPreferida'>,
+  ): Promise<PublicAudienceContext> {
+    const emergency = await this.prisma.emergencia.findFirst({
+      where: {
+        idUsuarioDispositivo: assignment.idUsuarioDispositivo,
+        estado: EstadoEmergencia.ACTIVA,
+      },
+      select: { codigoPublico: true },
+    });
+
+    if (emergency) {
+      return {
+        isPublic: true,
+        origen: 'EMERGENCIA',
+        codigoPublico: emergency.codigoPublico,
+        clavePublica: emergency.codigoPublico,
+      };
+    }
+
+    if (assignment.visibilidadPreferida === VisibilidadPreferida.PUBLICO) {
+      return {
+        isPublic: true,
+        origen: 'PUBLICO',
+        codigoPublico: null,
+        clavePublica: `VIS-${assignment.idUsuarioDispositivo}`,
+      };
+    }
+
+    return {
+      isPublic: false,
+      origen: null,
+      codigoPublico: null,
+      clavePublica: null,
+    };
+  }
+
+  async findVisibleAssignments(viewerUserId: number): Promise<AssignmentAccessContext[]> {
+    const [own, sharedByContacts, groupVisible, emergencyVisible] = await Promise.all([
+      this.findOwnAssignments(viewerUserId),
+      this.findAssignmentsSharedByContacts(viewerUserId),
+      this.findGroupVisibleAssignments(viewerUserId),
+      this.findEmergencyVisibleAssignments(viewerUserId),
+    ]);
+
+    const byId = new Map<number, AssignmentAccessContext>();
+
+    for (const assignment of [...own, ...sharedByContacts, ...groupVisible, ...emergencyVisible]) {
+      byId.set(assignment.idUsuarioDispositivo, assignment);
+    }
+
+    return [...byId.values()];
+  }
+
+  private async collectPrivateViewerUserIds(assignment: AssignmentAccessContext): Promise<number[]> {
+    const viewerIds = new Set<number>([assignment.idUsuario]);
+
+    const contacts = await this.prisma.usuarioContacto.findMany({
+      where: {
+        estado: EstadoContacto.ACEPTADO,
+        OR: [{ idUsuario1: assignment.idUsuario }, { idUsuario2: assignment.idUsuario }],
+      },
+    });
+
+    for (const contact of contacts) {
+      const otherId =
+        contact.idUsuario1 === assignment.idUsuario ? contact.idUsuario2 : contact.idUsuario1;
+      const ownerShares =
+        assignment.idUsuario === contact.idUsuario1
+          ? contact.usuario1ComparteUbicacion
+          : contact.usuario2ComparteUbicacion;
+
+      if (ownerShares) {
+        viewerIds.add(otherId);
+      }
+    }
+
+    if (assignment.visibilidadPreferida === VisibilidadPreferida.GRUPO) {
+      for (const memberId of await this.findActiveGroupPeerIds(assignment.idUsuario)) {
+        viewerIds.add(memberId);
+      }
+    }
+
+    if (await this.hasActiveEmergency(assignment.idUsuarioDispositivo)) {
+      for (const contact of contacts) {
+        const otherId =
+          contact.idUsuario1 === assignment.idUsuario ? contact.idUsuario2 : contact.idUsuario1;
+        viewerIds.add(otherId);
+      }
+
+      for (const memberId of await this.findActiveGroupPeerIds(assignment.idUsuario)) {
+        viewerIds.add(memberId);
+      }
+    }
+
+    return [...viewerIds];
+  }
+
+  private async findOwnAssignments(viewerUserId: number): Promise<AssignmentAccessContext[]> {
+    return this.prisma.usuarioDispositivo.findMany({
+      where: { idUsuario: viewerUserId, estado: true },
+    });
+  }
+
+  private async findAssignmentsSharedByContacts(
+    viewerUserId: number,
+  ): Promise<AssignmentAccessContext[]> {
+    const contacts = await this.prisma.usuarioContacto.findMany({
+      where: {
+        estado: EstadoContacto.ACEPTADO,
+        OR: [{ idUsuario1: viewerUserId }, { idUsuario2: viewerUserId }],
+      },
+    });
+
+    const ownerIds = contacts
+      .filter((contact) =>
+        contact.idUsuario1 === viewerUserId
+          ? contact.usuario2ComparteUbicacion
+          : contact.usuario1ComparteUbicacion,
+      )
+      .map((contact) =>
+        contact.idUsuario1 === viewerUserId ? contact.idUsuario2 : contact.idUsuario1,
+      );
+
+    if (ownerIds.length === 0) {
+      return [];
+    }
+
+    return this.prisma.usuarioDispositivo.findMany({
+      where: { idUsuario: { in: ownerIds }, estado: true },
+    });
+  }
+
+  private async findGroupVisibleAssignments(
+    viewerUserId: number,
+  ): Promise<AssignmentAccessContext[]> {
+    const peerIds = await this.findActiveGroupPeerIds(viewerUserId);
+
+    if (peerIds.length === 0) {
+      return [];
+    }
+
+    return this.prisma.usuarioDispositivo.findMany({
+      where: {
+        idUsuario: { in: peerIds },
+        estado: true,
+        visibilidadPreferida: VisibilidadPreferida.GRUPO,
+      },
+    });
+  }
+
+  private async findEmergencyVisibleAssignments(
+    viewerUserId: number,
+  ): Promise<AssignmentAccessContext[]> {
+    const emergencies = await this.prisma.emergencia.findMany({
+      where: { estado: EstadoEmergencia.ACTIVA },
+      include: { usuarioDispositivo: true },
+    });
+
+    const visible: AssignmentAccessContext[] = [];
+
+    for (const emergency of emergencies) {
+      const assignment = emergency.usuarioDispositivo;
+
+      if (!assignment.estado) {
+        continue;
+      }
+
+      const allowed = await this.canViewEmergencyDetails(viewerUserId, assignment.idUsuario);
+
+      if (allowed) {
+        visible.push(assignment);
+      }
+    }
+
+    return visible;
+  }
+
+  async hasActiveEmergency(idUsuarioDispositivo: number): Promise<boolean> {
     const emergency = await this.prisma.emergencia.findFirst({
       where: {
         idUsuarioDispositivo,
@@ -142,5 +333,31 @@ export class LocationAccessService {
     });
 
     return shared != null;
+  }
+
+  private async findActiveGroupPeerIds(userId: number): Promise<number[]> {
+    const memberships = await this.prisma.grupoUsuario.findMany({
+      where: {
+        idUsuario: userId,
+        estado: true,
+        grupo: { estado: true },
+      },
+      select: { idGrupo: true },
+    });
+
+    if (memberships.length === 0) {
+      return [];
+    }
+
+    const peers = await this.prisma.grupoUsuario.findMany({
+      where: {
+        estado: true,
+        idGrupo: { in: memberships.map((row) => row.idGrupo) },
+        idUsuario: { not: userId },
+      },
+      select: { idUsuario: true },
+    });
+
+    return [...new Set(peers.map((row) => row.idUsuario))];
   }
 }
