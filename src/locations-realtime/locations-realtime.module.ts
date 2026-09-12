@@ -7,6 +7,6 @@ import { LocationsRealtimeGateway } from './locations-realtime.gateway.js';
 @Module({
   imports: [AuthModule, UsersModule],
   providers: [LocationsRealtimeGateway, LocationRealtimeNotifier],
-  exports: [LocationRealtimeNotifier],
+  exports: [LocationRealtimeNotifier, LocationsRealtimeGateway],
 })
 export class LocationsRealtimeModule {}

@@ -69,6 +69,16 @@ export class GroupsController {
     return this.groupsService.rejectInvitation(user.idUsuario, id);
   }
 
+  @Patch('invitations/:id/cancel')
+  @ApiOperation({ summary: 'Cancelar una invitación pendiente. Requiere rol ADMIN del grupo.' })
+  @ApiOkResponse({ type: InvitationResponseDto })
+  cancelInvitation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<InvitationResponseDto> {
+    return this.groupsService.cancelInvitation(user.idUsuario, id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtener un grupo propio' })
   @ApiOkResponse({ type: GroupResponseDto })

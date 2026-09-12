@@ -164,7 +164,7 @@ export class ContactsService {
           mensaje: 'Ahora son contactos.',
           tipoReferencia: TipoReferencia.CONTACTO,
           idReferencia: BigInt(row.idUsuarioContacto),
-          userIds: [row.idUsuario1, row.idUsuario2],
+          userIds: [row.idUsuarioSolicitante],
         },
         tx,
       );
@@ -176,12 +176,52 @@ export class ContactsService {
   }
 
   async reject(idUsuario: number, idUsuarioContacto: number): Promise<ContactResponseDto> {
-    await this.getPendingIncoming(idUsuario, idUsuarioContacto);
+    const contact = await this.getPendingIncoming(idUsuario, idUsuarioContacto);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.usuarioContacto.update({
+        where: { idUsuarioContacto },
+        data: {
+          estado: EstadoContacto.RECHAZADO,
+          fechaRespuesta: new Date(),
+        },
+        include: contactInclude,
+      });
+
+      await this.notificationsService.createForUsers(
+        {
+          tipo: TipoNotificacion.CONTACTO_RECHAZADO,
+          alcance: AlcanceNotificacion.USUARIO,
+          titulo: 'Solicitud de contacto rechazada',
+          mensaje: 'Tu solicitud de contacto fue rechazada.',
+          tipoReferencia: TipoReferencia.CONTACTO,
+          idReferencia: BigInt(row.idUsuarioContacto),
+          userIds: [contact.idUsuarioSolicitante],
+        },
+        tx,
+      );
+
+      return row;
+    });
+
+    return toContactResponse(updated, idUsuario);
+  }
+
+  async cancel(idUsuario: number, idUsuarioContacto: number): Promise<ContactResponseDto> {
+    const contact = await this.getOwnedContact(idUsuario, idUsuarioContacto);
+
+    if (contact.estado !== EstadoContacto.PENDIENTE) {
+      throw new BadRequestException('La solicitud no está pendiente');
+    }
+
+    if (contact.idUsuarioSolicitante !== idUsuario) {
+      throw new ForbiddenException('Solo el solicitante puede cancelar la solicitud');
+    }
 
     const updated = await this.prisma.usuarioContacto.update({
       where: { idUsuarioContacto },
       data: {
-        estado: EstadoContacto.RECHAZADO,
+        estado: EstadoContacto.CANCELADO,
         fechaRespuesta: new Date(),
       },
       include: contactInclude,

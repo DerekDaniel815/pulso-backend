@@ -68,6 +68,27 @@ export class ContactsController {
     return this.contactsService.reject(user.idUsuario, id);
   }
 
+  @Patch('requests/:id/cancel')
+  @ApiOperation({ summary: 'Cancelar una solicitud de contacto enviada' })
+  @ApiOkResponse({ type: ContactResponseDto })
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<ContactResponseDto> {
+    return this.contactsService.cancel(user.idUsuario, id);
+  }
+
+  @Patch(':id/location-sharing')
+  @ApiOperation({ summary: 'Activar o desactivar el permiso direccional de ubicación' })
+  @ApiOkResponse({ type: ContactResponseDto })
+  updateLocationSharing(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateLocationPermissionDto,
+  ): Promise<ContactResponseDto> {
+    return this.contactsService.updateLocationPermission(user.idUsuario, id, dto);
+  }
+
   @Patch(':id/location-permission')
   @ApiOperation({ summary: 'Activar o desactivar el permiso direccional de ubicación' })
   @ApiOkResponse({ type: ContactResponseDto })

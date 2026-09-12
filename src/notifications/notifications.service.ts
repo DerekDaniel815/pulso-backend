@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { AlcanceNotificacion, TipoNotificacion, TipoReferencia } from '../common/enums.js';
-import type { Prisma } from '../generated/prisma/client.js';
+import type { Notificacion, NotificacionUsuario, Prisma } from '../generated/prisma/client.js';
+import { LocationsRealtimeGateway } from '../locations-realtime/locations-realtime.gateway.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { toNotificationResponse, type NotificationResponseDto } from './dto/notification-response.dto.js';
 
@@ -16,9 +17,16 @@ export type CreateNotificationInput = {
 
 type DbClient = Prisma.TransactionClient | PrismaService;
 
+type NotificationWithRecipients = Notificacion & {
+  destinatarios: NotificacionUsuario[];
+};
+
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly locationsRealtimeGateway: LocationsRealtimeGateway,
+  ) {}
 
   async createForUsers(input: CreateNotificationInput, db: DbClient = this.prisma) {
     const userIds = [...new Set(input.userIds)];
@@ -27,7 +35,7 @@ export class NotificationsService {
       return null;
     }
 
-    return db.notificacion.create({
+    const created = await db.notificacion.create({
       data: {
         tipo: input.tipo,
         alcance: input.alcance,
@@ -39,20 +47,35 @@ export class NotificationsService {
           create: userIds.map((idUsuario) => ({ idUsuario })),
         },
       },
+      include: { destinatarios: true },
     });
+
+    this.emitCreated(created);
+    return created;
   }
 
-  async findMine(idUsuario: number, unreadOnly = false): Promise<NotificationResponseDto[]> {
+  async findMine(
+    idUsuario: number,
+    options: { unreadOnly?: boolean; limit?: number; offset?: number } = {},
+  ): Promise<NotificationResponseDto[]> {
     const rows = await this.prisma.notificacionUsuario.findMany({
       where: {
         idUsuario,
-        ...(unreadOnly ? { leida: false } : {}),
+        ...(options.unreadOnly ? { leida: false } : {}),
       },
       include: { notificacion: true },
       orderBy: { notificacion: { fechaCreacion: 'desc' } },
+      take: options.limit ?? 20,
+      skip: options.offset ?? 0,
     });
 
     return rows.map(toNotificationResponse);
+  }
+
+  async unreadCount(idUsuario: number): Promise<number> {
+    return this.prisma.notificacionUsuario.count({
+      where: { idUsuario, leida: false },
+    });
   }
 
   async markRead(idUsuario: number, idNotificacion: bigint): Promise<NotificationResponseDto> {
@@ -84,5 +107,28 @@ export class NotificationsService {
     });
 
     return toNotificationResponse(updated);
+  }
+
+  async markAllRead(idUsuario: number): Promise<number> {
+    const result = await this.prisma.notificacionUsuario.updateMany({
+      where: { idUsuario, leida: false },
+      data: {
+        leida: true,
+        fechaLectura: new Date(),
+      },
+    });
+
+    return result.count;
+  }
+
+  private emitCreated(created: NotificationWithRecipients): void {
+    for (const destinatario of created.destinatarios) {
+      this.locationsRealtimeGateway.emitNotificationCreated(destinatario.idUsuario, {
+        notification: toNotificationResponse({
+          ...destinatario,
+          notificacion: created,
+        }),
+      });
+    }
   }
 }

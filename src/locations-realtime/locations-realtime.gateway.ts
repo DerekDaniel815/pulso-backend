@@ -92,6 +92,10 @@ export class LocationsRealtimeGateway implements OnGatewayConnection, OnGatewayD
     this.server.to('public:locations').emit('location.public.removed', payload);
   }
 
+  emitNotificationCreated(userId: number, payload: { notification: unknown }): void {
+    this.server.to(`user:${userId}`).emit('notification.created', payload);
+  }
+
   private async authenticate(client: Socket): Promise<AuthenticatedUser> {
     const token = this.extractToken(client);
 

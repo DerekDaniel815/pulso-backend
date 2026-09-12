@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
+import { LocationsRealtimeModule } from '../locations-realtime/locations-realtime.module.js';
 import { NotificationsController } from './notifications.controller.js';
 import { NotificationsService } from './notifications.service.js';
 
 @Module({
+  imports: [LocationsRealtimeModule],
   controllers: [NotificationsController],
   providers: [NotificationsService],
   exports: [NotificationsService],

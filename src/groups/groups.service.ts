@@ -234,8 +234,13 @@ export class GroupsService {
         });
       }
 
-      const members = await tx.grupoUsuario.findMany({
-        where: { idGrupo: invitation.idGrupo, estado: true, idUsuario: { not: idUsuario } },
+      const admins = await tx.grupoUsuario.findMany({
+        where: {
+          idGrupo: invitation.idGrupo,
+          estado: true,
+          rol: RolGrupo.ADMIN,
+          idUsuario: { not: idUsuario },
+        },
         select: { idUsuario: true },
       });
 
@@ -244,10 +249,10 @@ export class GroupsService {
           tipo: TipoNotificacion.NUEVO_MIEMBRO,
           alcance: AlcanceNotificacion.GRUPO,
           titulo: 'Nuevo miembro en el grupo',
-          mensaje: `Alguien se unió a ${updated.grupo.nombre}.`,
+          mensaje: `${updated.invitado.nombres} se unió a ${updated.grupo.nombre}.`,
           tipoReferencia: TipoReferencia.GRUPO,
           idReferencia: BigInt(invitation.idGrupo),
-          userIds: members.map((member) => member.idUsuario),
+          userIds: admins.map((member) => member.idUsuario),
         },
         tx,
       );
@@ -265,6 +270,34 @@ export class GroupsService {
       where: { idInvitacion },
       data: {
         estado: EstadoInvitacion.RECHAZADA,
+        fechaRespuesta: new Date(),
+      },
+      include: invitationInclude,
+    });
+
+    return toInvitationResponse(updated);
+  }
+
+  async cancelInvitation(idUsuario: number, idInvitacion: number): Promise<InvitationResponseDto> {
+    const invitation = await this.prisma.grupoInvitacion.findUnique({
+      where: { idInvitacion },
+      include: invitationInclude,
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('Invitación no encontrada');
+    }
+
+    await this.getActiveMembership(idUsuario, invitation.idGrupo, true);
+
+    if (invitation.estado !== EstadoInvitacion.PENDIENTE) {
+      throw new BadRequestException('La invitación no está pendiente');
+    }
+
+    const updated = await this.prisma.grupoInvitacion.update({
+      where: { idInvitacion },
+      data: {
+        estado: EstadoInvitacion.CANCELADA,
         fechaRespuesta: new Date(),
       },
       include: invitationInclude,
@@ -300,17 +333,72 @@ export class GroupsService {
       });
 
       if (adminCount <= 1) {
-        throw new ConflictException('No se puede eliminar al último administrador del grupo');
+        if (!isSelf) {
+          throw new ConflictException('No se puede eliminar al último administrador del grupo');
+        }
+
+        const deactivated = await this.deactivateGroupWithoutAdmin(idGrupo, target);
+        return toGroupMemberResponse(deactivated);
       }
     }
 
-    const updated = await this.prisma.grupoUsuario.update({
-      where: { idGrupoUsuario: target.idGrupoUsuario },
-      data: { estado: false },
-      include: { usuario: true },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.grupoUsuario.update({
+        where: { idGrupoUsuario: target.idGrupoUsuario },
+        data: { estado: false },
+        include: { usuario: true },
+      });
+
+      if (!isSelf) {
+        await this.notificationsService.createForUsers(
+          {
+            tipo: TipoNotificacion.MIEMBRO_ELIMINADO,
+            alcance: AlcanceNotificacion.USUARIO,
+            titulo: 'Saliste de un grupo',
+            mensaje: 'Un administrador te retiró del grupo.',
+            tipoReferencia: TipoReferencia.GRUPO,
+            idReferencia: BigInt(idGrupo),
+            userIds: [targetUserId],
+          },
+          tx,
+        );
+      }
+
+      return row;
     });
 
     return toGroupMemberResponse(updated);
+  }
+
+  private async deactivateGroupWithoutAdmin(
+    idGrupo: number,
+    lastAdmin: { idGrupoUsuario: number; usuario: { idUsuario: number } },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.grupo.update({
+        where: { idGrupo },
+        data: { estado: false },
+      });
+
+      await tx.grupoUsuario.updateMany({
+        where: { idGrupo, estado: true },
+        data: { estado: false },
+      });
+
+      await tx.grupoInvitacion.updateMany({
+        where: { idGrupo, estado: EstadoInvitacion.PENDIENTE },
+        data: {
+          estado: EstadoInvitacion.CANCELADA,
+          fechaRespuesta: new Date(),
+        },
+      });
+
+      return tx.grupoUsuario.update({
+        where: { idGrupoUsuario: lastAdmin.idGrupoUsuario },
+        data: { estado: false },
+        include: { usuario: true },
+      });
+    });
   }
 
   private async getActiveMembership(idUsuario: number, idGrupo: number, adminOnly = false) {

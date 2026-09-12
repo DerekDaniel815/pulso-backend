@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseIntPipe, Patch } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Patch, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiNotFoundResponse,
@@ -9,7 +9,9 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
+import { NotificationQueryDto } from './dto/notification-query.dto.js';
 import { NotificationResponseDto } from './dto/notification-response.dto.js';
+import { MarkAllReadResponseDto, UnreadCountResponseDto } from './dto/unread-count.dto.js';
 import { NotificationsService } from './notifications.service.js';
 
 @ApiTags('notifications')
@@ -20,17 +22,46 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Listar notificaciones del usuario autenticado' })
+  @ApiOperation({ summary: 'Listar notificaciones del usuario autenticado (paginado)' })
   @ApiOkResponse({ type: [NotificationResponseDto] })
-  findMine(@CurrentUser() user: AuthenticatedUser): Promise<NotificationResponseDto[]> {
-    return this.notificationsService.findMine(user.idUsuario);
+  findMine(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: NotificationQueryDto,
+  ): Promise<NotificationResponseDto[]> {
+    return this.notificationsService.findMine(user.idUsuario, {
+      limit: query.limit,
+      offset: query.offset,
+    });
   }
 
   @Get('unread')
   @ApiOperation({ summary: 'Listar notificaciones no leídas' })
   @ApiOkResponse({ type: [NotificationResponseDto] })
-  findUnread(@CurrentUser() user: AuthenticatedUser): Promise<NotificationResponseDto[]> {
-    return this.notificationsService.findMine(user.idUsuario, true);
+  findUnread(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: NotificationQueryDto,
+  ): Promise<NotificationResponseDto[]> {
+    return this.notificationsService.findMine(user.idUsuario, {
+      unreadOnly: true,
+      limit: query.limit,
+      offset: query.offset,
+    });
+  }
+
+  @Get('unread-count')
+  @ApiOperation({ summary: 'Contar notificaciones no leídas del usuario autenticado' })
+  @ApiOkResponse({ type: UnreadCountResponseDto })
+  async unreadCount(@CurrentUser() user: AuthenticatedUser): Promise<UnreadCountResponseDto> {
+    const count = await this.notificationsService.unreadCount(user.idUsuario);
+    return { count };
+  }
+
+  @Patch('read-all')
+  @ApiOperation({ summary: 'Marcar todas las notificaciones del usuario como leídas' })
+  @ApiOkResponse({ type: MarkAllReadResponseDto })
+  async markAllRead(@CurrentUser() user: AuthenticatedUser): Promise<MarkAllReadResponseDto> {
+    const count = await this.notificationsService.markAllRead(user.idUsuario);
+    return { count };
   }
 
   @Patch(':id/read')

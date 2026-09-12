@@ -151,4 +151,16 @@ describe('LocationsRealtimeGateway', () => {
     expect(gateway.server.to).toHaveBeenCalledWith('public:locations');
     expect(emit).toHaveBeenCalledWith('location.public.removed', { clavePublica: 'VIS-10' });
   });
+
+  it('emite notification.created a la room del usuario', () => {
+    const emit = vi.fn();
+    gateway.server = { to: vi.fn().mockReturnValue({ emit }) } as never;
+
+    gateway.emitNotificationCreated(7, { notification: { idNotificacion: '1' } });
+
+    expect(gateway.server.to).toHaveBeenCalledWith('user:7');
+    expect(emit).toHaveBeenCalledWith('notification.created', {
+      notification: { idNotificacion: '1' },
+    });
+  });
 });
