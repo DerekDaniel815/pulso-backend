@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { AlcanceNotificacion, TipoNotificacion, TipoReferencia } from '../common/enums.js';
 import type { Notificacion, NotificacionUsuario, Prisma } from '../generated/prisma/client.js';
 import { LocationsRealtimeGateway } from '../locations-realtime/locations-realtime.gateway.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { PushService } from '../push/push.service.js';
 import { toNotificationResponse, type NotificationResponseDto } from './dto/notification-response.dto.js';
 
 export type CreateNotificationInput = {
@@ -23,9 +24,12 @@ type NotificationWithRecipients = Notificacion & {
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly locationsRealtimeGateway: LocationsRealtimeGateway,
+    private readonly pushService: PushService,
   ) {}
 
   async createForUsers(input: CreateNotificationInput, db: DbClient = this.prisma) {
@@ -51,6 +55,7 @@ export class NotificationsService {
     });
 
     this.emitCreated(created);
+    this.dispatchPush(created);
     return created;
   }
 
@@ -119,6 +124,18 @@ export class NotificationsService {
     });
 
     return result.count;
+  }
+
+  private dispatchPush(created: NotificationWithRecipients): void {
+    try {
+      this.pushService.dispatch(created);
+    } catch (error) {
+      this.logger.warn(
+        `Push no enviado; la notificación permanece persistida${
+          error instanceof Error ? `: ${error.message}` : ''
+        }`,
+      );
+    }
   }
 
   private emitCreated(created: NotificationWithRecipients): void {

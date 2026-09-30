@@ -41,6 +41,7 @@ model Usuario {
   invitacionesRecibidas GrupoInvitacion[]      @relation("InvitacionInvitado")
   notificaciones        NotificacionUsuario[]
   simulationSessions    SimulationSession[]
+  pushTokens            UsuarioPushToken[]
 
   @@map("usuario")
 }
@@ -253,4 +254,21 @@ model NotificacionUsuario {
   @@unique([idNotificacion, idUsuario], map: "uq_notificacion_usuario")
   @@index([idUsuario, leida], map: "ix_notificacion_usuario_usuario")
   @@map("notificacion_usuario")
+}
+
+/// Token de Expo Push por celular. Un usuario puede tener varios.
+/// plataforma: android | ios
+model UsuarioPushToken {
+  idUsuarioPushToken Int      @id @default(autoincrement()) @map("id_usuario_push_token")
+  idUsuario          Int      @map("id_usuario")
+  token              String   @unique @db.VarChar(255)
+  plataforma         String   @db.VarChar(20)
+  activo             Boolean  @default(true)
+  fechaRegistro      DateTime @default(now()) @map("fecha_registro") @db.Timestamptz(6)
+  fechaActualizacion DateTime @default(now()) @updatedAt @map("fecha_actualizacion") @db.Timestamptz(6)
+
+  usuario Usuario @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_usuario_push_token_usuario")
+
+  @@index([idUsuario, activo], map: "ix_usuario_push_token_usuario_activo")
+  @@map("usuario_push_token")
 }

@@ -29,6 +29,7 @@ describe('NotificationsService', () => {
   let service: NotificationsService;
   let prisma: Record<string, any>;
   let emitNotificationCreated: ReturnType<typeof vi.fn>;
+  let dispatch: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     prisma = {
@@ -42,9 +43,12 @@ describe('NotificationsService', () => {
       },
     };
     emitNotificationCreated = vi.fn();
-    service = new NotificationsService(prisma as never, {
-      emitNotificationCreated,
-    } as never);
+    dispatch = vi.fn();
+    service = new NotificationsService(
+      prisma as never,
+      { emitNotificationCreated } as never,
+      { dispatch } as never,
+    );
   });
 
   it('crea destinatarios únicos y emite notification.created a cada uno', async () => {
@@ -72,6 +76,37 @@ describe('NotificationsService', () => {
       2,
       expect.objectContaining({ notification: expect.objectContaining({ titulo: 'Nueva solicitud' }) }),
     );
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tipo: 'SOLICITUD_CONTACTO',
+        titulo: 'Nueva solicitud',
+        destinatarios: expect.arrayContaining([
+          expect.objectContaining({ idUsuario: 2 }),
+          expect.objectContaining({ idUsuario: 3 }),
+        ]),
+      }),
+    );
+  });
+
+  it('un fallo sincrónico de push no revierte la notificación ni el websocket', async () => {
+    prisma.notificacion.create.mockResolvedValue({
+      ...notification,
+      destinatarios: [recipient(2)],
+    });
+    dispatch.mockImplementation(() => {
+      throw new Error('push caído');
+    });
+
+    await expect(
+      service.createForUsers({
+        tipo: 'SOLICITUD_CONTACTO' as never,
+        alcance: 'USUARIO' as never,
+        titulo: 'Nueva solicitud',
+        userIds: [2],
+      }),
+    ).resolves.toEqual(expect.objectContaining({ idNotificacion: 11n }));
+
+    expect(emitNotificationCreated).toHaveBeenCalledOnce();
   });
 
   it('unreadCount solo cuenta las del usuario', async () => {
