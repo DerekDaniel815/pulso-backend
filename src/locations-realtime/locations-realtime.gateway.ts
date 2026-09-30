@@ -13,6 +13,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { UsersService } from '../users/users.service.js';
 import type {
   EmergencyPublicUpdatedPayload,
+  LocationPrivateRemovedPayload,
   LocationPublicRemovedPayload,
   LocationPublicUpdatedPayload,
   LocationUpdatedPayload,
@@ -90,6 +91,10 @@ export class LocationsRealtimeGateway implements OnGatewayConnection, OnGatewayD
 
   emitLocationPublicRemoved(payload: LocationPublicRemovedPayload): void {
     this.server.to('public:locations').emit('location.public.removed', payload);
+  }
+
+  emitLocationPrivateRemoved(userId: number, payload: LocationPrivateRemovedPayload): void {
+    this.server.to(`user:${userId}`).emit('location.private.removed', payload);
   }
 
   emitNotificationCreated(userId: number, payload: { notification: unknown }): void {

@@ -11,6 +11,7 @@ import {
   TipoNotificacion,
   TipoReferencia,
 } from '../common/enums.js';
+import { PrivateLocationRemovalNotifier } from '../locations/private-location-removal.notifier.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { toContactResponse, type ContactResponseDto } from './dto/contact-response.dto.js';
@@ -26,6 +27,7 @@ export class ContactsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly privateLocationRemoval: PrivateLocationRemovalNotifier,
   ) {}
 
   async createRequest(idUsuario: number, idUsuarioDestino: number): Promise<ContactResponseDto> {
@@ -241,14 +243,25 @@ export class ContactsService {
       throw new BadRequestException('Solo puedes cambiar el permiso en un contacto aceptado');
     }
 
-    const updated = await this.prisma.usuarioContacto.update({
-      where: { idUsuarioContacto },
-      data:
-        contact.idUsuario1 === idUsuario
-          ? { usuario1ComparteUbicacion: dto.comparteUbicacion }
-          : { usuario2ComparteUbicacion: dto.comparteUbicacion },
-      include: contactInclude,
-    });
+    const currentlyShares =
+      contact.idUsuario1 === idUsuario
+        ? contact.usuario1ComparteUbicacion
+        : contact.usuario2ComparteUbicacion;
+
+    const persist = () =>
+      this.prisma.usuarioContacto.update({
+        where: { idUsuarioContacto },
+        data:
+          contact.idUsuario1 === idUsuario
+            ? { usuario1ComparteUbicacion: dto.comparteUbicacion }
+            : { usuario2ComparteUbicacion: dto.comparteUbicacion },
+        include: contactInclude,
+      });
+
+    const updated =
+      dto.comparteUbicacion === false && currentlyShares
+        ? await this.privateLocationRemoval.notifyLostViewers([idUsuario], persist)
+        : await persist();
 
     return toContactResponse(updated, idUsuario);
   }
@@ -256,16 +269,20 @@ export class ContactsService {
   async remove(idUsuario: number, idUsuarioContacto: number): Promise<ContactResponseDto> {
     const contact = await this.getOwnedContact(idUsuario, idUsuarioContacto);
 
-    const updated = await this.prisma.usuarioContacto.update({
-      where: { idUsuarioContacto },
-      data: {
-        estado: EstadoContacto.ELIMINADO,
-        usuario1ComparteUbicacion: false,
-        usuario2ComparteUbicacion: false,
-        fechaRespuesta: contact.fechaRespuesta ?? new Date(),
-      },
-      include: contactInclude,
-    });
+    const updated = await this.privateLocationRemoval.notifyLostViewers(
+      [contact.idUsuario1, contact.idUsuario2],
+      () =>
+        this.prisma.usuarioContacto.update({
+          where: { idUsuarioContacto },
+          data: {
+            estado: EstadoContacto.ELIMINADO,
+            usuario1ComparteUbicacion: false,
+            usuario2ComparteUbicacion: false,
+            fechaRespuesta: contact.fechaRespuesta ?? new Date(),
+          },
+          include: contactInclude,
+        }),
+    );
 
     return toContactResponse(updated, idUsuario);
   }

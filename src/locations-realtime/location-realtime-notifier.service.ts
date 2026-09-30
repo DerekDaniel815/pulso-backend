@@ -51,6 +51,13 @@ export class LocationRealtimeNotifier {
     this.gateway.emitLocationPublicRemoved({ clavePublica });
   }
 
+  notifyPrivateLocationRemoved(userId: number, idUsuarioDispositivo: number): void {
+    this.logger.log(
+      `[WS LOCATION PRIVATE] removed userId=${userId} assignment=${idUsuarioDispositivo}`,
+    );
+    this.gateway.emitLocationPrivateRemoved(userId, { idUsuarioDispositivo });
+  }
+
   notifyIfPublicAudienceLost(previous: {
     isPublic: boolean;
     clavePublica: string | null;

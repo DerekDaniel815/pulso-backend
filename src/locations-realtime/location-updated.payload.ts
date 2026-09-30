@@ -32,3 +32,7 @@ export type LocationPublicRemovedPayload = {
   clavePublica: string;
 };
 
+export type LocationPrivateRemovedPayload = {
+  idUsuarioDispositivo: number;
+};
+

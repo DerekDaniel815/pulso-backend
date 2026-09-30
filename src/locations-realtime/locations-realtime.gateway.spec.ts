@@ -152,6 +152,18 @@ describe('LocationsRealtimeGateway', () => {
     expect(emit).toHaveBeenCalledWith('location.public.removed', { clavePublica: 'VIS-10' });
   });
 
+  it('emite location.private.removed solo a la room del usuario que perdió acceso', () => {
+    const emit = vi.fn();
+    gateway.server = { to: vi.fn().mockReturnValue({ emit }) } as never;
+
+    gateway.emitLocationPrivateRemoved(2, { idUsuarioDispositivo: 10 });
+
+    expect(gateway.server.to).toHaveBeenCalledTimes(1);
+    expect(gateway.server.to).toHaveBeenCalledWith('user:2');
+    expect(gateway.server.to).not.toHaveBeenCalledWith('public:locations');
+    expect(emit).toHaveBeenCalledWith('location.private.removed', { idUsuarioDispositivo: 10 });
+  });
+
   it('emite notification.created a la room del usuario', () => {
     const emit = vi.fn();
     gateway.server = { to: vi.fn().mockReturnValue({ emit }) } as never;

@@ -43,6 +43,7 @@ describe('ContactsService', () => {
     $transaction: ReturnType<typeof vi.fn>;
   };
   let createForUsers: ReturnType<typeof vi.fn>;
+  let notifyLostViewers: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     prisma = {
@@ -56,7 +57,14 @@ describe('ContactsService', () => {
       $transaction: vi.fn(async (cb: (tx: typeof prisma) => Promise<unknown>) => cb(prisma)),
     };
     createForUsers = vi.fn().mockResolvedValue(null);
-    service = new ContactsService(prisma as never, { createForUsers } as never);
+    notifyLostViewers = vi.fn(async (_ownerUserIds: number[], change: () => Promise<unknown>) =>
+      change(),
+    );
+    service = new ContactsService(
+      prisma as never,
+      { createForUsers } as never,
+      { notifyLostViewers } as never,
+    );
   });
 
   it('rechaza auto-solicitud', async () => {
