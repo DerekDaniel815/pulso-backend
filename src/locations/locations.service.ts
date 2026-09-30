@@ -107,6 +107,14 @@ export class LocationsService {
         continue;
       }
 
+      const emergenciaActiva = await this.locationAccessService.hasActiveEmergency(
+        assignment.idUsuarioDispositivo,
+      );
+
+      if (!row.ubicacionActiva && !emergenciaActiva) {
+        continue;
+      }
+
       const location = await this.prisma.ubicacion.findFirst({
         where: { idUsuarioDispositivo: assignment.idUsuarioDispositivo },
         orderBy: { fechaHoraDispositivo: 'desc' },
@@ -115,10 +123,6 @@ export class LocationsService {
       if (!location) {
         continue;
       }
-
-      const emergenciaActiva = await this.locationAccessService.hasActiveEmergency(
-        assignment.idUsuarioDispositivo,
-      );
 
       results.push({
         assignment: {
@@ -142,12 +146,17 @@ export class LocationsService {
       where: {
         estado: true,
         visibilidadPreferida: VisibilidadPreferida.PUBLICO,
+        ubicacionActiva: true,
       },
     });
 
     const markers: PublicLocationMarkerDto[] = [];
 
     for (const assignment of publicAssignments) {
+      if (!assignment.ubicacionActiva) {
+        continue;
+      }
+
       const audience = await this.locationAccessService.getPublicAudience(assignment);
 
       if (!audience.isPublic || audience.origen !== 'PUBLICO' || !audience.clavePublica) {

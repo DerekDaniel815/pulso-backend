@@ -111,3 +111,157 @@ describe('LocationsService realtime', () => {
     expect(tx.ubicacion.create).toHaveBeenCalledOnce();
   });
 });
+
+describe('LocationsService mapa en vivo', () => {
+  const locationRow = {
+    ...savedRow,
+    idUsuarioDispositivo: 10,
+  };
+
+  const deviceRow = {
+    idUsuarioDispositivo: 10,
+    idUsuario: 1,
+    alias: 'Pulsera',
+    visibilidadPreferida: 'SOLO_YO',
+    ubicacionActiva: true,
+    dispositivo: { codigoDispositivo: 'PUL-TEST1234' },
+  };
+
+  let prisma: {
+    usuarioDispositivo: {
+      findUnique: ReturnType<typeof vi.fn>;
+      findMany: ReturnType<typeof vi.fn>;
+    };
+    ubicacion: {
+      findFirst: ReturnType<typeof vi.fn>;
+      findMany: ReturnType<typeof vi.fn>;
+    };
+  };
+  let findVisibleAssignments: ReturnType<typeof vi.fn>;
+  let hasActiveEmergency: ReturnType<typeof vi.fn>;
+  let getPublicAudience: ReturnType<typeof vi.fn>;
+  let canViewAssignment: ReturnType<typeof vi.fn>;
+  let service: LocationsService;
+
+  beforeEach(() => {
+    prisma = {
+      usuarioDispositivo: {
+        findUnique: vi.fn().mockResolvedValue(deviceRow),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      ubicacion: {
+        findFirst: vi.fn().mockResolvedValue(locationRow),
+        findMany: vi.fn().mockResolvedValue([locationRow]),
+      },
+    };
+    findVisibleAssignments = vi.fn().mockResolvedValue([
+      {
+        idUsuarioDispositivo: 10,
+        idUsuario: 1,
+        visibilidadPreferida: 'SOLO_YO',
+        estado: true,
+      },
+    ]);
+    hasActiveEmergency = vi.fn().mockResolvedValue(false);
+    getPublicAudience = vi.fn();
+    canViewAssignment = vi.fn().mockResolvedValue(true);
+    service = new LocationsService(
+      prisma as unknown as PrismaService,
+      {
+        findVisibleAssignments,
+        hasActiveEmergency,
+        getPublicAudience,
+        canViewAssignment,
+      } as never,
+      { notifyLocationSaved: vi.fn() } as unknown as LocationRealtimeNotifier,
+    );
+  });
+
+  it('A/D. visible incluye tracking ON y excluye tracking OFF sin emergencia', async () => {
+    const visible = await service.findVisibleForUser(2);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.assignment.idUsuarioDispositivo).toBe(10);
+    expect(visible[0]?.location.idUbicacion).toBe('6');
+
+    prisma.usuarioDispositivo.findUnique.mockResolvedValue({
+      ...deviceRow,
+      ubicacionActiva: false,
+    });
+
+    await expect(service.findVisibleForUser(2)).resolves.toEqual([]);
+  });
+
+  it('C. visible conserva el marker si hay emergencia ACTIVA con tracking OFF', async () => {
+    prisma.usuarioDispositivo.findUnique.mockResolvedValue({
+      ...deviceRow,
+      ubicacionActiva: false,
+    });
+    hasActiveEmergency.mockResolvedValue(true);
+
+    const visible = await service.findVisibleForUser(2);
+
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.emergenciaActiva).toBe(true);
+    expect(visible[0]?.location.idUbicacion).toBe('6');
+  });
+
+  it('B/E. public solo devuelve tracking ON', async () => {
+    prisma.usuarioDispositivo.findMany.mockResolvedValue([
+      {
+        idUsuarioDispositivo: 10,
+        idUsuario: 1,
+        visibilidadPreferida: 'PUBLICO',
+        ubicacionActiva: true,
+        estado: true,
+      },
+      {
+        idUsuarioDispositivo: 11,
+        idUsuario: 1,
+        visibilidadPreferida: 'PUBLICO',
+        ubicacionActiva: false,
+        estado: true,
+      },
+    ]);
+    getPublicAudience.mockImplementation(async (row: { idUsuarioDispositivo: number; ubicacionActiva: boolean }) => {
+      if (!row.ubicacionActiva) {
+        return { isPublic: false, origen: null, clavePublica: null, codigoPublico: null };
+      }
+      return {
+        isPublic: true,
+        origen: 'PUBLICO',
+        clavePublica: `VIS-${row.idUsuarioDispositivo}`,
+        codigoPublico: null,
+      };
+    });
+
+    const markers = await service.findPublicMarkers();
+
+    expect(prisma.usuarioDispositivo.findMany).toHaveBeenCalledWith({
+      where: {
+        estado: true,
+        visibilidadPreferida: 'PUBLICO',
+        ubicacionActiva: true,
+      },
+    });
+    expect(markers).toEqual([
+      expect.objectContaining({ clavePublica: 'VIS-10', origen: 'PUBLICO' }),
+    ]);
+  });
+
+  it('F. latest e historial conservan la ubicación con tracking OFF', async () => {
+    prisma.usuarioDispositivo.findUnique.mockResolvedValue({
+      ...deviceRow,
+      ubicacionActiva: false,
+      estado: true,
+    });
+
+    const latest = await service.findLatestByAssignment(2, 10);
+    const history = await service.findHistory(2, 10, {});
+
+    expect(latest.idUbicacion).toBe('6');
+    expect(history).toHaveLength(1);
+    expect(history[0]?.idUbicacion).toBe('6');
+    expect(prisma.ubicacion.findFirst).toHaveBeenCalled();
+    expect(prisma.ubicacion.findMany).toHaveBeenCalled();
+  });
+});

@@ -114,7 +114,15 @@ export class UserDevicesService {
       throw new BadRequestException('No se puede actualizar una asignación desvinculada');
     }
 
+    const turningTrackingOff = current.ubicacionActiva && dto.ubicacionActiva === false;
     const previousAudience = await this.locationAccessService.getPublicAudience(current);
+    const emergencyActive = turningTrackingOff
+      ? await this.locationAccessService.hasActiveEmergency(idUsuarioDispositivo)
+      : false;
+    const privateViewers =
+      turningTrackingOff && !emergencyActive
+        ? await this.locationAccessService.getAuthorizedPrivateViewerUserIds(idUsuarioDispositivo)
+        : [];
 
     const updated = await this.prisma.usuarioDispositivo.update({
       where: { idUsuarioDispositivo },
@@ -128,6 +136,21 @@ export class UserDevicesService {
 
     const nextAudience = await this.locationAccessService.getPublicAudience(updated);
     this.locationRealtimeNotifier.notifyIfPublicAudienceLost(previousAudience, nextAudience);
+
+    if (turningTrackingOff && !emergencyActive) {
+      for (const viewerId of new Set(privateViewers)) {
+        this.locationRealtimeNotifier.notifyPrivateLocationRemoved(viewerId, idUsuarioDispositivo);
+      }
+
+      if (
+        previousAudience.origen === 'PUBLICO' &&
+        previousAudience.clavePublica &&
+        nextAudience.isPublic &&
+        nextAudience.origen === 'PUBLICO'
+      ) {
+        this.locationRealtimeNotifier.notifyLocationPublicRemoved(previousAudience.clavePublica);
+      }
+    }
 
     return toUserDeviceResponse(updated);
   }
