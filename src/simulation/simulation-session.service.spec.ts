@@ -1,7 +1,9 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { EstadoEmergencia, EstadoSimulationSession } from '../common/enums.js';
+import { EstadoEmergencia, EstadoSimulationSession, VisibilidadPreferida } from '../common/enums.js';
+import { LocationAccessService } from '../locations/location-access.service.js';
+import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SimulationSessionService } from './simulation-session.service.js';
 
@@ -37,9 +39,19 @@ describe('SimulationSessionService', () => {
       updateMany: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
     };
-    emergencia: { updateMany: ReturnType<typeof vi.fn> };
+    emergencia: {
+      updateMany: ReturnType<typeof vi.fn>;
+      findMany: ReturnType<typeof vi.fn>;
+    };
+    dispositivo: { update: ReturnType<typeof vi.fn> };
     $transaction: ReturnType<typeof vi.fn>;
   };
+  let hasActiveEmergency: ReturnType<typeof vi.fn>;
+  let getAuthorizedPrivateViewerUserIds: ReturnType<typeof vi.fn>;
+  let getPublicAudience: ReturnType<typeof vi.fn>;
+  let notifyPrivateLocationRemoved: ReturnType<typeof vi.fn>;
+  let notifyLocationPublicRemoved: ReturnType<typeof vi.fn>;
+  let notifyEmergencyPublicEnded: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     prisma = {
@@ -57,11 +69,24 @@ describe('SimulationSessionService', () => {
       },
       emergencia: {
         updateMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
+      dispositivo: { update: vi.fn() },
       $transaction: vi.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) =>
         callback(prisma),
       ),
     };
+    hasActiveEmergency = vi.fn().mockResolvedValue(false);
+    getAuthorizedPrivateViewerUserIds = vi.fn().mockResolvedValue([]);
+    getPublicAudience = vi.fn().mockResolvedValue({
+      isPublic: false,
+      origen: null,
+      codigoPublico: null,
+      clavePublica: null,
+    });
+    notifyPrivateLocationRemoved = vi.fn();
+    notifyLocationPublicRemoved = vi.fn();
+    notifyEmergencyPublicEnded = vi.fn();
 
     const configService = {
       get: vi.fn((key: string) => {
@@ -70,7 +95,20 @@ describe('SimulationSessionService', () => {
       }),
     } as unknown as ConfigService;
 
-    service = new SimulationSessionService(prisma as unknown as PrismaService, configService);
+    service = new SimulationSessionService(
+      prisma as unknown as PrismaService,
+      configService,
+      {
+        hasActiveEmergency,
+        getAuthorizedPrivateViewerUserIds,
+        getPublicAudience,
+      } as unknown as LocationAccessService,
+      {
+        notifyPrivateLocationRemoved,
+        notifyLocationPublicRemoved,
+        notifyEmergencyPublicEnded,
+      } as unknown as LocationRealtimeNotifier,
+    );
   });
 
   it('A. crea sesión ACTIVA con expiraEn = now + lease', async () => {
@@ -321,6 +359,215 @@ describe('SimulationSessionService', () => {
         data: { habilitoUbicacionActiva: true },
       }),
     );
+  });
+
+  it('A. simulador activó tracking público: al expirar retira markers privado y público', async () => {
+    const assignment = {
+      idUsuario: 1,
+      idUsuarioDispositivo: 10,
+      estado: true,
+      ubicacionActiva: true,
+      visibilidadPreferida: VisibilidadPreferida.PUBLICO,
+    };
+    prisma.usuarioDispositivo.findUnique.mockImplementation(async () => assignment);
+    prisma.usuarioDispositivo.update.mockImplementation(async ({ data }: { data: { ubicacionActiva: boolean } }) => {
+      Object.assign(assignment, data);
+      return assignment;
+    });
+    prisma.simulationSession.findMany.mockResolvedValue([
+      buildSession({ habilitoUbicacionActiva: true, ubicacionActivaPrevia: false }),
+    ]);
+    prisma.simulationSession.updateMany.mockResolvedValue({ count: 1 });
+    prisma.simulationSession.findUniqueOrThrow.mockImplementation(async () => ({
+      ...buildSession({ habilitoUbicacionActiva: true, ubicacionActivaPrevia: false }),
+      estado: EstadoSimulationSession.EXPIRADA,
+    }));
+    getAuthorizedPrivateViewerUserIds.mockResolvedValue([1, 2]);
+    getPublicAudience.mockImplementation(async (row: { ubicacionActiva: boolean; idUsuarioDispositivo: number; visibilidadPreferida: string }) => {
+      if (row.ubicacionActiva && row.visibilidadPreferida === VisibilidadPreferida.PUBLICO) {
+        return {
+          isPublic: true,
+          origen: 'PUBLICO' as const,
+          codigoPublico: null,
+          clavePublica: `VIS-${row.idUsuarioDispositivo}`,
+        };
+      }
+      return { isPublic: false, origen: null, codigoPublico: null, clavePublica: null };
+    });
+
+    await service.expireSessions();
+
+    expect(assignment.ubicacionActiva).toBe(false);
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10);
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10);
+    expect(notifyLocationPublicRemoved).toHaveBeenCalledOnce();
+    expect(notifyLocationPublicRemoved).toHaveBeenCalledWith('VIS-10');
+    expect(notifyEmergencyPublicEnded).not.toHaveBeenCalled();
+    expect(prisma.dispositivo.update).not.toHaveBeenCalled();
+  });
+
+  it('B. tracking preexistente sigue ON y no emite removed al expirar', async () => {
+    const assignment = {
+      idUsuario: 1,
+      idUsuarioDispositivo: 10,
+      estado: true,
+      ubicacionActiva: true,
+      visibilidadPreferida: VisibilidadPreferida.PUBLICO,
+    };
+    prisma.usuarioDispositivo.findUnique.mockImplementation(async () => assignment);
+    prisma.simulationSession.findMany.mockResolvedValue([
+      buildSession({ habilitoUbicacionActiva: false, ubicacionActivaPrevia: true }),
+    ]);
+    prisma.simulationSession.updateMany.mockResolvedValue({ count: 1 });
+    prisma.simulationSession.findUniqueOrThrow.mockResolvedValue({
+      ...buildSession({ habilitoUbicacionActiva: false, ubicacionActivaPrevia: true }),
+      estado: EstadoSimulationSession.EXPIRADA,
+    });
+    getAuthorizedPrivateViewerUserIds.mockResolvedValue([1, 2]);
+    getPublicAudience.mockResolvedValue({
+      isPublic: true,
+      origen: 'PUBLICO',
+      codigoPublico: null,
+      clavePublica: 'VIS-10',
+    });
+
+    await service.expireSessions();
+
+    expect(assignment.ubicacionActiva).toBe(true);
+    expect(prisma.usuarioDispositivo.update).not.toHaveBeenCalled();
+    expect(notifyPrivateLocationRemoved).not.toHaveBeenCalled();
+    expect(notifyLocationPublicRemoved).not.toHaveBeenCalled();
+    expect(notifyEmergencyPublicEnded).not.toHaveBeenCalled();
+  });
+
+  it('C. emergencia simulada se finaliza y emite emergency.public.ended', async () => {
+    const emergencies = [
+      {
+        idSimulationSession: 99,
+        idUsuarioDispositivo: 10,
+        estado: EstadoEmergencia.ACTIVA,
+        codigoPublico: 'EME-SIM',
+      },
+    ];
+    const assignment = {
+      idUsuario: 1,
+      idUsuarioDispositivo: 10,
+      estado: true,
+      ubicacionActiva: true,
+      visibilidadPreferida: VisibilidadPreferida.SOLO_YO,
+    };
+    prisma.usuarioDispositivo.findUnique.mockImplementation(async () => assignment);
+    prisma.usuarioDispositivo.update.mockImplementation(async ({ data }: { data: { ubicacionActiva: boolean } }) => {
+      Object.assign(assignment, data);
+      return assignment;
+    });
+    prisma.emergencia.findMany.mockImplementation(async ({ where }: { where: { idSimulationSession: number; estado: string } }) =>
+      emergencies.filter(
+        (row) => row.idSimulationSession === where.idSimulationSession && row.estado === where.estado,
+      ),
+    );
+    prisma.emergencia.updateMany.mockImplementation(async ({ where, data }: { where: { idSimulationSession: number; estado: string }; data: { estado: string } }) => {
+      let count = 0;
+      for (const row of emergencies) {
+        if (row.idSimulationSession === where.idSimulationSession && row.estado === where.estado) {
+          Object.assign(row, data);
+          count += 1;
+        }
+      }
+      return { count };
+    });
+    hasActiveEmergency.mockImplementation(async () =>
+      emergencies.some((row) => row.idUsuarioDispositivo === 10 && row.estado === EstadoEmergencia.ACTIVA),
+    );
+    getAuthorizedPrivateViewerUserIds.mockResolvedValue([1, 2]);
+    getPublicAudience.mockResolvedValue({
+      isPublic: true,
+      origen: 'EMERGENCIA',
+      codigoPublico: 'EME-SIM',
+      clavePublica: 'EME-SIM',
+    });
+    prisma.simulationSession.findMany.mockResolvedValue([
+      buildSession({ habilitoUbicacionActiva: true, ubicacionActivaPrevia: false }),
+    ]);
+    prisma.simulationSession.updateMany.mockResolvedValue({ count: 1 });
+    prisma.simulationSession.findUniqueOrThrow.mockResolvedValue({
+      ...buildSession({ habilitoUbicacionActiva: true, ubicacionActivaPrevia: false }),
+      estado: EstadoSimulationSession.EXPIRADA,
+    });
+
+    await service.expireSessions();
+
+    expect(emergencies[0]?.estado).toBe(EstadoEmergencia.FINALIZADA);
+    expect(notifyEmergencyPublicEnded).toHaveBeenCalledOnce();
+    expect(notifyEmergencyPublicEnded).toHaveBeenCalledWith('EME-SIM');
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10);
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10);
+    expect(notifyLocationPublicRemoved).not.toHaveBeenCalled();
+  });
+
+  it('D. emergencia real con idSimulationSession null no se finaliza ni emite ended', async () => {
+    const emergencies = [
+      {
+        idSimulationSession: null as number | null,
+        idUsuarioDispositivo: 10,
+        estado: EstadoEmergencia.ACTIVA,
+        codigoPublico: 'EME-REAL',
+      },
+    ];
+    const assignment = {
+      idUsuario: 1,
+      idUsuarioDispositivo: 10,
+      estado: true,
+      ubicacionActiva: true,
+      visibilidadPreferida: VisibilidadPreferida.SOLO_YO,
+    };
+    prisma.usuarioDispositivo.findUnique.mockImplementation(async () => assignment);
+    prisma.emergencia.findMany.mockImplementation(async ({ where }: { where: { idSimulationSession: number; estado: string } }) =>
+      emergencies.filter(
+        (row) => row.idSimulationSession === where.idSimulationSession && row.estado === where.estado,
+      ),
+    );
+    prisma.emergencia.updateMany.mockImplementation(async ({ where, data }: { where: { idSimulationSession: number; estado: string }; data: { estado: string } }) => {
+      let count = 0;
+      for (const row of emergencies) {
+        if (row.idSimulationSession === where.idSimulationSession && row.estado === where.estado) {
+          Object.assign(row, data);
+          count += 1;
+        }
+      }
+      return { count };
+    });
+    hasActiveEmergency.mockResolvedValue(true);
+    getAuthorizedPrivateViewerUserIds.mockResolvedValue([1]);
+    prisma.simulationSession.findMany.mockResolvedValue([
+      buildSession({ habilitoUbicacionActiva: false, ubicacionActivaPrevia: true }),
+    ]);
+    prisma.simulationSession.updateMany.mockResolvedValue({ count: 1 });
+    prisma.simulationSession.findUniqueOrThrow.mockResolvedValue({
+      ...buildSession({ habilitoUbicacionActiva: false, ubicacionActivaPrevia: true }),
+      estado: EstadoSimulationSession.EXPIRADA,
+    });
+
+    await service.expireSessions();
+
+    expect(emergencies[0]?.estado).toBe(EstadoEmergencia.ACTIVA);
+    expect(notifyEmergencyPublicEnded).not.toHaveBeenCalled();
+    expect(notifyPrivateLocationRemoved).not.toHaveBeenCalled();
+    expect(prisma.usuarioDispositivo.update).not.toHaveBeenCalled();
+    expect(prisma.dispositivo.update).not.toHaveBeenCalled();
+  });
+
+  it('E. expirar el simulador no escribe en el dispositivo real', async () => {
+    prisma.simulationSession.findMany.mockResolvedValue([buildSession()]);
+    prisma.simulationSession.updateMany.mockResolvedValue({ count: 1 });
+    prisma.simulationSession.findUniqueOrThrow.mockResolvedValue({
+      ...buildSession(),
+      estado: EstadoSimulationSession.EXPIRADA,
+    });
+
+    await service.expireSessions();
+
+    expect(prisma.dispositivo.update).not.toHaveBeenCalled();
   });
 
   it('setTracking no marca habilito si ubicacionActivaPrevia=true', async () => {

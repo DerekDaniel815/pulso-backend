@@ -7,6 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EstadoEmergencia, EstadoSimulationSession } from '../common/enums.js';
 import type { Prisma, SimulationSession } from '../generated/prisma/client.js';
+import { LocationAccessService } from '../locations/location-access.service.js';
+import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   toSimulationSessionResponse,
@@ -15,6 +17,12 @@ import {
 
 const DEFAULT_LEASE_SECONDS = 45;
 
+type CleanupSnapshot = {
+  privateViewers: Set<number>;
+  normalPublicKey: string | null;
+  emergencyCodes: string[];
+};
+
 @Injectable()
 export class SimulationSessionService {
   private readonly logger = new Logger(SimulationSessionService.name);
@@ -22,6 +30,8 @@ export class SimulationSessionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly locationAccessService: LocationAccessService,
+    private readonly locationRealtimeNotifier: LocationRealtimeNotifier,
   ) {}
 
   getLeaseSeconds(): number {
@@ -179,7 +189,7 @@ export class SimulationSessionService {
     let processed = 0;
 
     for (const candidate of expiredCandidates) {
-      const closed = await this.tryExpireSession(candidate.idSimulationSession);
+      const closed = await this.tryExpireSession(candidate);
       if (closed) {
         processed += 1;
       }
@@ -192,11 +202,12 @@ export class SimulationSessionService {
     return processed;
   }
 
-  private async tryExpireSession(idSimulationSession: number): Promise<boolean> {
-    const result = await this.prisma.$transaction(async (tx) => {
+  private async tryExpireSession(session: SimulationSession): Promise<boolean> {
+    const snapshot = await this.captureCleanupSnapshot(session);
+    const closed = await this.prisma.$transaction(async (tx) => {
       const claim = await tx.simulationSession.updateMany({
         where: {
-          idSimulationSession,
+          idSimulationSession: session.idSimulationSession,
           estado: EstadoSimulationSession.ACTIVA,
         },
         data: {
@@ -206,25 +217,30 @@ export class SimulationSessionService {
       });
 
       if (claim.count === 0) {
-        return null;
+        return false;
       }
 
-      const session = await tx.simulationSession.findUniqueOrThrow({
-        where: { idSimulationSession },
+      const current = await tx.simulationSession.findUniqueOrThrow({
+        where: { idSimulationSession: session.idSimulationSession },
       });
 
-      await this.applySessionCleanup(tx, session);
-      return session;
+      await this.applySessionCleanup(tx, current);
+      return true;
     });
 
-    return result !== null;
+    if (closed) {
+      await this.publishCleanupRealtime(session.idUsuarioDispositivo, snapshot);
+    }
+
+    return closed;
   }
 
   private async closeSession(
     session: SimulationSession,
     targetState: EstadoSimulationSession.EXPIRADA | EstadoSimulationSession.FINALIZADA,
   ): Promise<SimulationSession> {
-    return this.prisma.$transaction(async (tx) => {
+    const snapshot = await this.captureCleanupSnapshot(session);
+    const outcome = await this.prisma.$transaction(async (tx) => {
       const claim = await tx.simulationSession.updateMany({
         where: {
           idSimulationSession: session.idSimulationSession,
@@ -236,19 +252,105 @@ export class SimulationSessionService {
         },
       });
 
-      if (claim.count === 0) {
-        return tx.simulationSession.findUniqueOrThrow({
-          where: { idSimulationSession: session.idSimulationSession },
-        });
-      }
-
       const current = await tx.simulationSession.findUniqueOrThrow({
         where: { idSimulationSession: session.idSimulationSession },
       });
 
+      if (claim.count === 0) {
+        return { session: current, cleaned: false };
+      }
+
       await this.applySessionCleanup(tx, current);
-      return current;
+      return { session: current, cleaned: true };
     });
+
+    if (outcome.cleaned) {
+      await this.publishCleanupRealtime(session.idUsuarioDispositivo, snapshot);
+    }
+
+    return outcome.session;
+  }
+
+  private async captureCleanupSnapshot(session: SimulationSession): Promise<CleanupSnapshot> {
+    const [privateViewers, normalPublicKey, emergencies] = await Promise.all([
+      this.currentLivePrivateViewers(session.idUsuarioDispositivo),
+      this.currentNormalPublicKey(session.idUsuarioDispositivo),
+      this.prisma.emergencia.findMany({
+        where: {
+          idSimulationSession: session.idSimulationSession,
+          estado: EstadoEmergencia.ACTIVA,
+        },
+        select: { codigoPublico: true },
+      }),
+    ]);
+
+    return {
+      privateViewers,
+      normalPublicKey,
+      emergencyCodes: emergencies.map((row) => row.codigoPublico),
+    };
+  }
+
+  private async publishCleanupRealtime(
+    idUsuarioDispositivo: number,
+    snapshot: CleanupSnapshot,
+  ): Promise<void> {
+    const afterViewers = await this.currentLivePrivateViewers(idUsuarioDispositivo);
+
+    for (const idUsuario of snapshot.privateViewers) {
+      if (!afterViewers.has(idUsuario)) {
+        this.locationRealtimeNotifier.notifyPrivateLocationRemoved(idUsuario, idUsuarioDispositivo);
+      }
+    }
+
+    const afterPublicKey = await this.currentNormalPublicKey(idUsuarioDispositivo);
+
+    if (snapshot.normalPublicKey && snapshot.normalPublicKey !== afterPublicKey) {
+      this.locationRealtimeNotifier.notifyLocationPublicRemoved(snapshot.normalPublicKey);
+    }
+
+    for (const codigoPublico of snapshot.emergencyCodes) {
+      this.locationRealtimeNotifier.notifyEmergencyPublicEnded(codigoPublico);
+    }
+  }
+
+  private async currentLivePrivateViewers(idUsuarioDispositivo: number): Promise<Set<number>> {
+    const assignment = await this.prisma.usuarioDispositivo.findUnique({
+      where: { idUsuarioDispositivo },
+    });
+
+    if (!assignment?.estado) {
+      return new Set();
+    }
+
+    const emergencyActive = await this.locationAccessService.hasActiveEmergency(idUsuarioDispositivo);
+
+    if (!assignment.ubicacionActiva && !emergencyActive) {
+      return new Set();
+    }
+
+    const viewers = await this.locationAccessService.getAuthorizedPrivateViewerUserIds(
+      idUsuarioDispositivo,
+    );
+    return new Set(viewers);
+  }
+
+  private async currentNormalPublicKey(idUsuarioDispositivo: number): Promise<string | null> {
+    const assignment = await this.prisma.usuarioDispositivo.findUnique({
+      where: { idUsuarioDispositivo },
+    });
+
+    if (!assignment?.estado || !assignment.ubicacionActiva) {
+      return null;
+    }
+
+    const audience = await this.locationAccessService.getPublicAudience(assignment);
+
+    if (audience.origen === 'PUBLICO' && audience.clavePublica) {
+      return audience.clavePublica;
+    }
+
+    return null;
   }
 
   private async applySessionCleanup(
