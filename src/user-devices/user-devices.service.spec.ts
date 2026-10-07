@@ -32,6 +32,7 @@ describe('UserDevicesService.update visibilidad pública', () => {
   let notifyIfPublicAudienceLost: ReturnType<typeof vi.fn>;
   let notifyPrivateLocationRemoved: ReturnType<typeof vi.fn>;
   let notifyLocationPublicRemoved: ReturnType<typeof vi.fn>;
+  let notifyLostViewers: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     prisma = {
@@ -46,6 +47,7 @@ describe('UserDevicesService.update visibilidad pública', () => {
     notifyIfPublicAudienceLost = vi.fn();
     notifyPrivateLocationRemoved = vi.fn();
     notifyLocationPublicRemoved = vi.fn();
+    notifyLostViewers = vi.fn(async (_ownerIds: number[], change: () => Promise<unknown>) => change());
 
     service = new UserDevicesService(
       prisma as unknown as PrismaService,
@@ -60,6 +62,7 @@ describe('UserDevicesService.update visibilidad pública', () => {
         notifyPrivateLocationRemoved,
         notifyLocationPublicRemoved,
       } as unknown as LocationRealtimeNotifier,
+      { notifyLostViewers } as never,
     );
   });
 

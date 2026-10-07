@@ -39,6 +39,7 @@ model Usuario {
   grupos                GrupoUsuario[]
   invitacionesEnviadas  GrupoInvitacion[]      @relation("InvitacionInvitador")
   invitacionesRecibidas GrupoInvitacion[]      @relation("InvitacionInvitado")
+  exclusionesUbicacion  UsuarioDispositivoGrupoExclusion[] @relation("UsuarioExcluidoUbicacion")
   notificaciones        NotificacionUsuario[]
   simulationSessions    SimulationSession[]
   pushTokens            UsuarioPushToken[]
@@ -91,6 +92,7 @@ model Dispositivo {
 
 /// Historial de asignaciones. Un dispositivo solo puede tener UNA activa (estado = true).
 /// visibilidadPreferida: SOLO_YO | GRUPO | PUBLICO
+/// GRUPO no abre todos los grupos: solo los grants activos de usuario_dispositivo_grupo.
 model UsuarioDispositivo {
   idUsuarioDispositivo Int       @id @default(autoincrement()) @map("id_usuario_dispositivo")
   idUsuario            Int       @map("id_usuario")
@@ -107,6 +109,8 @@ model UsuarioDispositivo {
   ubicaciones         Ubicacion[]
   emergencias         Emergencia[]
   simulationSessions  SimulationSession[]
+  gruposCompartidos   UsuarioDispositivoGrupo[]
+  exclusionesGrupo    UsuarioDispositivoGrupoExclusion[]
 
   @@unique([idDispositivo], map: "ux_dispositivo_asignacion_activa", where: raw("(estado = true)"))
   @@map("usuario_dispositivo")
@@ -123,6 +127,8 @@ model Grupo {
   creador      Usuario           @relation(fields: [idCreador], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_grupo_creador")
   miembros     GrupoUsuario[]
   invitaciones GrupoInvitacion[]
+  compartidos  UsuarioDispositivoGrupo[]
+  exclusiones  UsuarioDispositivoGrupoExclusion[]
 
   @@map("grupo")
 }
@@ -159,6 +165,43 @@ model GrupoInvitacion {
 
   @@unique([idGrupo, idUsuarioInvitado], map: "ux_invitacion_pendiente", where: raw("((estado)::text = 'PENDIENTE'::text)"))
   @@map("grupo_invitacion")
+}
+
+/// Sharing normal de una asignación con un grupo concreto.
+/// Solo autoriza si visibilidadPreferida = GRUPO, activo = true y el tracking está encendido.
+model UsuarioDispositivoGrupo {
+  idUsuarioDispositivoGrupo Int      @id @default(autoincrement()) @map("id_usuario_dispositivo_grupo")
+  idUsuarioDispositivo      Int      @map("id_usuario_dispositivo")
+  idGrupo                   Int      @map("id_grupo")
+  activo                    Boolean  @default(true)
+  fechaRegistro             DateTime @default(now()) @map("fecha_registro") @db.Timestamptz(6)
+  fechaActualizacion        DateTime @default(now()) @updatedAt @map("fecha_actualizacion") @db.Timestamptz(6)
+
+  usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_udg_usuario_dispositivo")
+  grupo              Grupo              @relation(fields: [idGrupo], references: [idGrupo], onDelete: NoAction, onUpdate: NoAction, map: "fk_udg_grupo")
+
+  @@unique([idUsuarioDispositivo, idGrupo], map: "uq_usuario_dispositivo_grupo")
+  @@index([idGrupo, activo], map: "ix_usuario_dispositivo_grupo_grupo_activo")
+  @@map("usuario_dispositivo_grupo")
+}
+
+/// Exclusión dentro de un grupo compartido. No es un DENY global de la persona.
+/// Se conserva si el miembro sale; no tiene efecto mientras no sea miembro activo.
+model UsuarioDispositivoGrupoExclusion {
+  idUsuarioDispositivoGrupoExclusion Int      @id @default(autoincrement()) @map("id_usuario_dispositivo_grupo_exclusion")
+  idUsuarioDispositivo               Int      @map("id_usuario_dispositivo")
+  idGrupo                            Int      @map("id_grupo")
+  idUsuarioExcluido                  Int      @map("id_usuario_excluido")
+  fechaRegistro                      DateTime @default(now()) @map("fecha_registro") @db.Timestamptz(6)
+
+  usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_udg_exclusion_usuario_dispositivo")
+  grupo              Grupo              @relation(fields: [idGrupo], references: [idGrupo], onDelete: NoAction, onUpdate: NoAction, map: "fk_udg_exclusion_grupo")
+  usuarioExcluido    Usuario            @relation("UsuarioExcluidoUbicacion", fields: [idUsuarioExcluido], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction, map: "fk_udg_exclusion_usuario")
+
+  @@unique([idUsuarioDispositivo, idGrupo, idUsuarioExcluido], map: "uq_usuario_dispositivo_grupo_exclusion")
+  @@index([idUsuarioExcluido], map: "ix_udg_exclusion_usuario")
+  @@index([idUsuarioDispositivo, idGrupo], map: "ix_udg_exclusion_asignacion_grupo")
+  @@map("usuario_dispositivo_grupo_exclusion")
 }
 
 model Ubicacion {

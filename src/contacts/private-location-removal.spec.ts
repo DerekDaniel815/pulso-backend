@@ -10,7 +10,10 @@ type Assignment = {
   idUsuario: number;
   visibilidadPreferida: string;
   estado: boolean;
+  ubicacionActiva?: boolean;
 };
+
+type GrantRow = { idUsuarioDispositivo: number; idGrupo: number; activo: boolean };
 
 type ContactRow = {
   idUsuarioContacto: number;
@@ -36,12 +39,14 @@ describe('retiro realtime de marker privado por contacto', () => {
   let assignments: Assignment[];
   let contact: ContactRow;
   let groups: Map<number, number[]>;
+  let grants: GrantRow[];
   let emitLocationPrivateRemoved: ReturnType<typeof vi.fn>;
   let service: ContactsService;
 
   beforeEach(() => {
     assignments = [];
     groups = new Map();
+    grants = [];
     contact = {
       idUsuarioContacto: 10,
       idUsuario1: 1,
@@ -109,12 +114,31 @@ describe('retiro realtime de marker privado por contacto', () => {
           for (const idGrupo of where.idGrupo?.in ?? []) {
             for (const idUsuario of groups.get(idGrupo) ?? []) {
               if (idUsuario !== excluded) {
-                peers.push({ idUsuario });
+                peers.push({ idUsuario, idGrupo });
               }
             }
           }
           return peers;
         }),
+      },
+      usuarioDispositivoGrupo: {
+        findMany: vi.fn(async ({ where }: { where: { idUsuarioDispositivo?: number; activo?: boolean; idGrupo?: { in: number[] } } }) =>
+          grants.filter((grant) => {
+            if (where.idUsuarioDispositivo != null && grant.idUsuarioDispositivo !== where.idUsuarioDispositivo) {
+              return false;
+            }
+            if (where.activo != null && grant.activo !== where.activo) {
+              return false;
+            }
+            if (where.idGrupo?.in && !where.idGrupo.in.includes(grant.idGrupo)) {
+              return false;
+            }
+            return true;
+          }),
+        ),
+      },
+      usuarioDispositivoGrupoExclusion: {
+        findMany: vi.fn().mockResolvedValue([]),
       },
       emergencia: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -165,9 +189,11 @@ describe('retiro realtime de marker privado por contacto', () => {
         idUsuario: 1,
         visibilidadPreferida: VisibilidadPreferida.GRUPO,
         estado: true,
+        ubicacionActiva: true,
       },
     ];
     groups.set(8, [1, 2]);
+    grants = [{ idUsuarioDispositivo: 10, idGrupo: 8, activo: true }];
 
     await service.updateLocationPermission(1, 10, { comparteUbicacion: false });
 
@@ -217,15 +243,21 @@ describe('retiro realtime de marker privado por contacto', () => {
         idUsuario: 1,
         visibilidadPreferida: VisibilidadPreferida.GRUPO,
         estado: true,
+        ubicacionActiva: true,
       },
       {
         idUsuarioDispositivo: 20,
         idUsuario: 2,
         visibilidadPreferida: VisibilidadPreferida.GRUPO,
         estado: true,
+        ubicacionActiva: true,
       },
     ];
     groups.set(8, [1, 2]);
+    grants = [
+      { idUsuarioDispositivo: 10, idGrupo: 8, activo: true },
+      { idUsuarioDispositivo: 20, idGrupo: 8, activo: true },
+    ];
 
     await service.remove(1, 10);
 

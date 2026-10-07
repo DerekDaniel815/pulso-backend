@@ -13,6 +13,7 @@ import {
   VisibilidadPreferida,
 } from '../common/enums.js';
 import { LocationAccessService } from '../locations/location-access.service.js';
+import { PrivateLocationRemovalNotifier } from '../locations/private-location-removal.notifier.js';
 import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -27,6 +28,7 @@ export class UserDevicesService {
     private readonly notificationsService: NotificationsService,
     private readonly locationAccessService: LocationAccessService,
     private readonly locationRealtimeNotifier: LocationRealtimeNotifier,
+    private readonly privateLocationRemoval: PrivateLocationRemovalNotifier,
   ) {}
 
   async assign(idUsuario: number, dto: CreateUserDeviceDto): Promise<UserDeviceResponseDto> {
@@ -115,6 +117,9 @@ export class UserDevicesService {
     }
 
     const turningTrackingOff = current.ubicacionActiva && dto.ubicacionActiva === false;
+    const visibilityChanging =
+      dto.visibilidadPreferida != null &&
+      dto.visibilidadPreferida !== current.visibilidadPreferida;
     const previousAudience = await this.locationAccessService.getPublicAudience(current);
     const emergencyActive = turningTrackingOff
       ? await this.locationAccessService.hasActiveEmergency(idUsuarioDispositivo)
@@ -124,15 +129,21 @@ export class UserDevicesService {
         ? await this.locationAccessService.getAuthorizedPrivateViewerUserIds(idUsuarioDispositivo)
         : [];
 
-    const updated = await this.prisma.usuarioDispositivo.update({
-      where: { idUsuarioDispositivo },
-      data: {
-        alias: dto.alias,
-        visibilidadPreferida: dto.visibilidadPreferida,
-        ubicacionActiva: dto.ubicacionActiva,
-      },
-      include: { dispositivo: true },
-    });
+    const persist = () =>
+      this.prisma.usuarioDispositivo.update({
+        where: { idUsuarioDispositivo },
+        data: {
+          alias: dto.alias,
+          visibilidadPreferida: dto.visibilidadPreferida,
+          ubicacionActiva: dto.ubicacionActiva,
+        },
+        include: { dispositivo: true },
+      });
+
+    const updated =
+      visibilityChanging && !turningTrackingOff
+        ? await this.privateLocationRemoval.notifyLostViewers([idUsuario], persist)
+        : await persist();
 
     const nextAudience = await this.locationAccessService.getPublicAudience(updated);
     this.locationRealtimeNotifier.notifyIfPublicAudienceLost(previousAudience, nextAudience);

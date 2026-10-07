@@ -11,6 +11,7 @@ export type AssignmentAccessContext = {
   idUsuario: number;
   visibilidadPreferida: string;
   estado: boolean;
+  ubicacionActiva?: boolean;
 };
 
 export type PublicAudienceContext = {
@@ -48,10 +49,7 @@ export class LocationAccessService {
       return true;
     }
 
-    if (
-      assignment.visibilidadPreferida === VisibilidadPreferida.GRUPO &&
-      (await this.shareActiveGroup(assignment.idUsuario, viewerUserId))
-    ) {
+    if (await this.hasNormalGroupAccess(viewerUserId, assignment)) {
       return true;
     }
 
@@ -174,7 +172,7 @@ export class LocationAccessService {
     }
 
     if (assignment.visibilidadPreferida === VisibilidadPreferida.GRUPO) {
-      for (const memberId of await this.findActiveGroupPeerIds(assignment.idUsuario)) {
+      for (const memberId of await this.findGrantedGroupPeerIds(assignment)) {
         viewerIds.add(memberId);
       }
     }
@@ -232,19 +230,87 @@ export class LocationAccessService {
   private async findGroupVisibleAssignments(
     viewerUserId: number,
   ): Promise<AssignmentAccessContext[]> {
-    const peerIds = await this.findActiveGroupPeerIds(viewerUserId);
+    const memberships = await this.prisma.grupoUsuario.findMany({
+      where: {
+        idUsuario: viewerUserId,
+        estado: true,
+        grupo: { estado: true },
+      },
+      select: { idGrupo: true },
+    });
 
-    if (peerIds.length === 0) {
+    if (memberships.length === 0) {
       return [];
     }
 
-    return this.prisma.usuarioDispositivo.findMany({
+    const groupIds = memberships.map((row) => row.idGrupo);
+    const grants = await this.prisma.usuarioDispositivoGrupo.findMany({
       where: {
-        idUsuario: { in: peerIds },
-        estado: true,
-        visibilidadPreferida: VisibilidadPreferida.GRUPO,
+        activo: true,
+        idGrupo: { in: groupIds },
+        grupo: { estado: true },
+        usuarioDispositivo: {
+          estado: true,
+          ubicacionActiva: true,
+          visibilidadPreferida: VisibilidadPreferida.GRUPO,
+          idUsuario: { not: viewerUserId },
+        },
+      },
+      select: {
+        idGrupo: true,
+        idUsuarioDispositivo: true,
+        usuarioDispositivo: true,
       },
     });
+
+    if (grants.length === 0) {
+      return [];
+    }
+
+    const ownerIds = [...new Set(grants.map((grant) => grant.usuarioDispositivo.idUsuario))];
+    const grantGroupIds = [...new Set(grants.map((grant) => grant.idGrupo))];
+    const ownerMemberships = await this.prisma.grupoUsuario.findMany({
+      where: {
+        estado: true,
+        idUsuario: { in: ownerIds },
+        idGrupo: { in: grantGroupIds },
+        grupo: { estado: true },
+      },
+      select: { idUsuario: true, idGrupo: true },
+    });
+    const ownerMemberKey = new Set(
+      ownerMemberships.map((row) => `${row.idUsuario}:${row.idGrupo}`),
+    );
+
+    const exclusions = await this.prisma.usuarioDispositivoGrupoExclusion.findMany({
+      where: {
+        idUsuarioExcluido: viewerUserId,
+        idGrupo: { in: grantGroupIds },
+        idUsuarioDispositivo: { in: grants.map((grant) => grant.idUsuarioDispositivo) },
+      },
+      select: { idUsuarioDispositivo: true, idGrupo: true },
+    });
+    const excludedKey = new Set(
+      exclusions.map((row) => `${row.idUsuarioDispositivo}:${row.idGrupo}`),
+    );
+
+    const byId = new Map<number, AssignmentAccessContext>();
+
+    for (const grant of grants) {
+      const assignment = grant.usuarioDispositivo;
+
+      if (!ownerMemberKey.has(`${assignment.idUsuario}:${grant.idGrupo}`)) {
+        continue;
+      }
+
+      if (excludedKey.has(`${grant.idUsuarioDispositivo}:${grant.idGrupo}`)) {
+        continue;
+      }
+
+      byId.set(assignment.idUsuarioDispositivo, assignment);
+    }
+
+    return [...byId.values()];
   }
 
   private async findEmergencyVisibleAssignments(
@@ -314,6 +380,84 @@ export class LocationAccessService {
       : contact.usuario2ComparteUbicacion;
   }
 
+  private async hasNormalGroupAccess(
+    viewerUserId: number,
+    assignment: AssignmentAccessContext,
+  ): Promise<boolean> {
+    const peers = await this.findGrantedGroupPeerIds(assignment);
+    return peers.includes(viewerUserId);
+  }
+
+  private async findGrantedGroupPeerIds(assignment: AssignmentAccessContext): Promise<number[]> {
+    if (
+      assignment.visibilidadPreferida !== VisibilidadPreferida.GRUPO ||
+      !assignment.estado ||
+      assignment.ubicacionActiva !== true
+    ) {
+      return [];
+    }
+
+    const grants = await this.prisma.usuarioDispositivoGrupo.findMany({
+      where: {
+        idUsuarioDispositivo: assignment.idUsuarioDispositivo,
+        activo: true,
+        grupo: { estado: true },
+      },
+      select: { idGrupo: true },
+    });
+
+    if (grants.length === 0) {
+      return [];
+    }
+
+    const groupIds = grants.map((grant) => grant.idGrupo);
+    const ownerMemberships = await this.prisma.grupoUsuario.findMany({
+      where: {
+        idUsuario: assignment.idUsuario,
+        idGrupo: { in: groupIds },
+        estado: true,
+        grupo: { estado: true },
+      },
+      select: { idGrupo: true },
+    });
+    const validGroupIds = ownerMemberships.map((row) => row.idGrupo);
+
+    if (validGroupIds.length === 0) {
+      return [];
+    }
+
+    const [peers, exclusions] = await Promise.all([
+      this.prisma.grupoUsuario.findMany({
+        where: {
+          estado: true,
+          idGrupo: { in: validGroupIds },
+          idUsuario: { not: assignment.idUsuario },
+          grupo: { estado: true },
+        },
+        select: { idUsuario: true, idGrupo: true },
+      }),
+      this.prisma.usuarioDispositivoGrupoExclusion.findMany({
+        where: {
+          idUsuarioDispositivo: assignment.idUsuarioDispositivo,
+          idGrupo: { in: validGroupIds },
+        },
+        select: { idGrupo: true, idUsuarioExcluido: true },
+      }),
+    ]);
+
+    const excluded = new Set(exclusions.map((row) => `${row.idGrupo}:${row.idUsuarioExcluido}`));
+    const allowed = new Set<number>();
+
+    for (const peer of peers) {
+      if (!excluded.has(`${peer.idGrupo}:${peer.idUsuario}`)) {
+        allowed.add(peer.idUsuario);
+      }
+    }
+
+    return [...allowed];
+  }
+
+  /** Co-membresía de emergencia. No usa grants ni exclusiones del sharing normal. */
   private async shareActiveGroup(ownerId: number, viewerId: number): Promise<boolean> {
     const shared = await this.prisma.grupoUsuario.findFirst({
       where: {
@@ -335,6 +479,7 @@ export class LocationAccessService {
     return shared != null;
   }
 
+  /** Compañeros de emergencia. Ignora visibilidadPreferida, grants y exclusiones. */
   private async findActiveGroupPeerIds(userId: number): Promise<number[]> {
     const memberships = await this.prisma.grupoUsuario.findMany({
       where: {

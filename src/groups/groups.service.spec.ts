@@ -33,6 +33,7 @@ describe('GroupsService', () => {
   let service: GroupsService;
   let prisma: Record<string, any>;
   let createForUsers: ReturnType<typeof vi.fn>;
+  let notifyLostViewers: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     prisma = {
@@ -62,7 +63,13 @@ describe('GroupsService', () => {
       $transaction: vi.fn(async (cb: (tx: typeof prisma) => Promise<unknown>) => cb(prisma)),
     };
     createForUsers = vi.fn().mockResolvedValue(null);
-    service = new GroupsService(prisma as never, { createForUsers } as never);
+    notifyLostViewers = vi.fn(async (_ownerIds: number[], change: () => Promise<unknown>) => change());
+    prisma.grupoUsuario.findMany.mockResolvedValue([]);
+    service = new GroupsService(
+      prisma as never,
+      { createForUsers } as never,
+      { notifyLostViewers } as never,
+    );
   });
 
   it('crea grupo con el creador como ADMIN', async () => {
@@ -151,6 +158,7 @@ describe('GroupsService', () => {
       }),
       prisma,
     );
+    expect(notifyLostViewers).not.toHaveBeenCalled();
   });
 
   it('un tercero no puede aceptar la invitación', async () => {
@@ -221,11 +229,65 @@ describe('GroupsService', () => {
       fechaIngreso: new Date(),
     });
 
+    prisma.grupoUsuario.findMany.mockResolvedValue([{ idUsuario: 1 }]);
+
     await service.removeMember(1, 5, 1);
 
+    expect(notifyLostViewers).toHaveBeenCalledWith([1], expect.any(Function));
     expect(prisma.grupo.update).toHaveBeenCalledWith({
       where: { idGrupo: 5 },
       data: { estado: false },
     });
+  });
+
+  it('G. expulsar a un miembro calcula la audiencia antes del cambio', async () => {
+    prisma.grupoUsuario.findUnique
+      .mockResolvedValueOnce({
+        estado: true,
+        rol: RolGrupo.ADMIN,
+        grupo: { estado: true },
+      })
+      .mockResolvedValueOnce({
+        idGrupoUsuario: 2,
+        estado: true,
+        rol: RolGrupo.MIEMBRO,
+        usuario: { idUsuario: 2, nombres: 'Bruno', apellidos: 'B' },
+      });
+    prisma.grupoUsuario.findMany.mockResolvedValue([{ idUsuario: 1 }, { idUsuario: 2 }]);
+    prisma.grupoUsuario.update.mockResolvedValue({
+      idGrupoUsuario: 2,
+      idGrupo: 5,
+      estado: false,
+      rol: RolGrupo.MIEMBRO,
+      fechaIngreso: new Date(),
+      usuario: { idUsuario: 2, nombres: 'Bruno', apellidos: 'B' },
+    });
+
+    await service.removeMember(1, 5, 2);
+
+    expect(notifyLostViewers).toHaveBeenCalledWith([1, 2], expect.any(Function));
+    expect(createForUsers).toHaveBeenCalledWith(
+      expect.objectContaining({ tipo: TipoNotificacion.MIEMBRO_ELIMINADO, userIds: [2] }),
+      prisma,
+    );
+  });
+
+  it('H. desactivar el grupo calcula la audiencia de los miembros activos', async () => {
+    prisma.grupoUsuario.findUnique.mockResolvedValue({
+      estado: true,
+      rol: RolGrupo.ADMIN,
+      grupo: { estado: true },
+    });
+    prisma.grupoUsuario.findMany.mockResolvedValue([{ idUsuario: 1 }, { idUsuario: 2 }]);
+    prisma.grupo.update.mockResolvedValue({
+      ...group,
+      estado: false,
+      miembros: [],
+    });
+
+    await service.update(1, 5, { estado: false });
+
+    expect(notifyLostViewers).toHaveBeenCalledWith([1, 2], expect.any(Function));
+    expect(prisma.grupo.update).toHaveBeenCalled();
   });
 });

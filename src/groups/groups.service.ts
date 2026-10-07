@@ -12,6 +12,7 @@ import {
   TipoNotificacion,
   TipoReferencia,
 } from '../common/enums.js';
+import { PrivateLocationRemovalNotifier } from '../locations/private-location-removal.notifier.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateGroupDto } from './dto/create-group.dto.js';
@@ -36,6 +37,7 @@ export class GroupsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly privateLocationRemoval: PrivateLocationRemovalNotifier,
   ) {}
 
   async create(idUsuario: number, dto: CreateGroupDto): Promise<GroupResponseDto> {
@@ -91,19 +93,29 @@ export class GroupsService {
   }
 
   async update(idUsuario: number, idGrupo: number, dto: UpdateGroupDto): Promise<GroupResponseDto> {
-    await this.getActiveMembership(idUsuario, idGrupo, true);
+    const membership = await this.getActiveMembership(idUsuario, idGrupo, true);
+    const deactivating = dto.estado === false && membership.grupo.estado;
 
-    const updated = await this.prisma.grupo.update({
-      where: { idGrupo },
-      data: {
-        nombre: dto.nombre,
-        descripcion: dto.descripcion,
-        estado: dto.estado,
-      },
-      include: { miembros: { where: { estado: true }, include: { usuario: true } } },
-    });
+    const persist = async () => {
+      const updated = await this.prisma.grupo.update({
+        where: { idGrupo },
+        data: {
+          nombre: dto.nombre,
+          descripcion: dto.descripcion,
+          estado: dto.estado,
+        },
+        include: { miembros: { where: { estado: true }, include: { usuario: true } } },
+      });
 
-    return toGroupResponse(updated);
+      return toGroupResponse(updated);
+    };
+
+    if (!deactivating) {
+      return persist();
+    }
+
+    const ownerIds = await this.activeMemberUserIds(idGrupo);
+    return this.privateLocationRemoval.notifyLostViewers(ownerIds, persist);
   }
 
   async findMembers(idUsuario: number, idGrupo: number): Promise<GroupMemberResponseDto[]> {
@@ -337,37 +349,52 @@ export class GroupsService {
           throw new ConflictException('No se puede eliminar al último administrador del grupo');
         }
 
-        const deactivated = await this.deactivateGroupWithoutAdmin(idGrupo, target);
+        const ownerIds = await this.activeMemberUserIds(idGrupo);
+        const deactivated = await this.privateLocationRemoval.notifyLostViewers(ownerIds, () =>
+          this.deactivateGroupWithoutAdmin(idGrupo, target),
+        );
         return toGroupMemberResponse(deactivated);
       }
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const row = await tx.grupoUsuario.update({
-        where: { idGrupoUsuario: target.idGrupoUsuario },
-        data: { estado: false },
-        include: { usuario: true },
-      });
+    const ownerIds = await this.activeMemberUserIds(idGrupo);
+    const updated = await this.privateLocationRemoval.notifyLostViewers(ownerIds, () =>
+      this.prisma.$transaction(async (tx) => {
+        const row = await tx.grupoUsuario.update({
+          where: { idGrupoUsuario: target.idGrupoUsuario },
+          data: { estado: false },
+          include: { usuario: true },
+        });
 
-      if (!isSelf) {
-        await this.notificationsService.createForUsers(
-          {
-            tipo: TipoNotificacion.MIEMBRO_ELIMINADO,
-            alcance: AlcanceNotificacion.USUARIO,
-            titulo: 'Saliste de un grupo',
-            mensaje: 'Un administrador te retiró del grupo.',
-            tipoReferencia: TipoReferencia.GRUPO,
-            idReferencia: BigInt(idGrupo),
-            userIds: [targetUserId],
-          },
-          tx,
-        );
-      }
+        if (!isSelf) {
+          await this.notificationsService.createForUsers(
+            {
+              tipo: TipoNotificacion.MIEMBRO_ELIMINADO,
+              alcance: AlcanceNotificacion.USUARIO,
+              titulo: 'Saliste de un grupo',
+              mensaje: 'Un administrador te retiró del grupo.',
+              tipoReferencia: TipoReferencia.GRUPO,
+              idReferencia: BigInt(idGrupo),
+              userIds: [targetUserId],
+            },
+            tx,
+          );
+        }
 
-      return row;
-    });
+        return row;
+      }),
+    );
 
     return toGroupMemberResponse(updated);
+  }
+
+  private async activeMemberUserIds(idGrupo: number): Promise<number[]> {
+    const rows = await this.prisma.grupoUsuario.findMany({
+      where: { idGrupo, estado: true },
+      select: { idUsuario: true },
+    });
+
+    return rows.map((row) => row.idUsuario);
   }
 
   private async deactivateGroupWithoutAdmin(
