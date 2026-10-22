@@ -38,7 +38,7 @@ export class UserDevicesController {
   @ApiOperation({
     summary: 'Vincular un dispositivo al usuario autenticado por codigoDispositivo',
     description:
-      'El dispositivo debe estar en estado DISPONIBLE. visibilidadPreferida y ubicacionActiva se inicializan en backend (SOLO_YO / false).',
+      'El dispositivo debe estar en estado DISPONIBLE. visibilidadPreferida y ubicacionActiva se inicializan en backend (SOLO_YO / true).',
   })
   @ApiCreatedResponse({ type: UserDeviceResponseDto })
   @ApiNotFoundResponse({ description: 'Dispositivo no encontrado con ese código' })

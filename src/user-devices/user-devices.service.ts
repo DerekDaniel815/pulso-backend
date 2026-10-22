@@ -61,7 +61,7 @@ export class UserDevicesService {
           idDispositivo: device.idDispositivo,
           alias: dto.alias,
           visibilidadPreferida: VisibilidadPreferida.SOLO_YO,
-          ubicacionActiva: false,
+          ubicacionActiva: true,
         },
         include: { dispositivo: true },
       });

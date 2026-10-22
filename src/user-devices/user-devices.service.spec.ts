@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { VisibilidadPreferida } from '../common/enums.js';
+import {
+  AlcanceNotificacion,
+  EstadoDispositivo,
+  TipoNotificacion,
+  TipoReferencia,
+  VisibilidadPreferida,
+} from '../common/enums.js';
 import { LocationAccessService } from '../locations/location-access.service.js';
 import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -194,5 +200,107 @@ describe('UserDevicesService.update visibilidad pública', () => {
     expect(notifyPrivateLocationRemoved).not.toHaveBeenCalled();
     expect(notifyLocationPublicRemoved).not.toHaveBeenCalled();
     expect(getAuthorizedPrivateViewerUserIds).not.toHaveBeenCalled();
+  });
+});
+
+describe('UserDevicesService.assign', () => {
+  const device = {
+    idDispositivo: 15,
+    codigoDispositivo: 'PUL-GDZH8RQQ',
+    imei: null,
+    modelo: 'ESP32',
+    numeroSerie: 'SN-001',
+    estado: EstadoDispositivo.DISPONIBLE,
+    ultimaConexion: null,
+    fechaFabricacion: null,
+    fechaRegistro: new Date('2026-10-22T02:52:06.202Z'),
+  };
+
+  it('vincula con tracking activo, visibilidad SOLO_YO y dispositivo ASIGNADO', async () => {
+    const created = {
+      idUsuarioDispositivo: 12,
+      idUsuario: 17,
+      idDispositivo: device.idDispositivo,
+      alias: 'dispositivo real',
+      estado: true,
+      visibilidadPreferida: VisibilidadPreferida.SOLO_YO,
+      ubicacionActiva: true,
+      fechaAsignacion: new Date('2026-10-22T03:06:37.872Z'),
+      fechaDesvinculacion: null,
+      dispositivo: device,
+    };
+    const tx = {
+      usuarioDispositivo: {
+        create: vi.fn().mockResolvedValue(created),
+      },
+      dispositivo: {
+        update: vi.fn().mockResolvedValue({
+          ...device,
+          estado: EstadoDispositivo.ASIGNADO,
+        }),
+      },
+    };
+    const prisma = {
+      dispositivo: {
+        findUnique: vi.fn().mockResolvedValue(device),
+      },
+      usuarioDispositivo: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const createForUsers = vi.fn().mockResolvedValue({ idNotificacion: 1n });
+    const service = new UserDevicesService(
+      prisma as unknown as PrismaService,
+      { createForUsers } as never,
+      {} as LocationAccessService,
+      {} as LocationRealtimeNotifier,
+      {} as never,
+    );
+
+    const result = await service.assign(17, {
+      codigoDispositivo: device.codigoDispositivo,
+      alias: 'dispositivo real',
+    });
+
+    expect(tx.usuarioDispositivo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          idUsuario: 17,
+          idDispositivo: 15,
+          alias: 'dispositivo real',
+          visibilidadPreferida: VisibilidadPreferida.SOLO_YO,
+          ubicacionActiva: true,
+        },
+      }),
+    );
+    expect(tx.dispositivo.update).toHaveBeenCalledWith({
+      where: { idDispositivo: 15 },
+      data: { estado: EstadoDispositivo.ASIGNADO },
+    });
+    expect(createForUsers).toHaveBeenCalledWith(
+      {
+        tipo: TipoNotificacion.DISPOSITIVO_VINCULADO,
+        alcance: AlcanceNotificacion.USUARIO,
+        titulo: 'Dispositivo vinculado',
+        mensaje: 'Se vinculó el dispositivo PUL-GDZH8RQQ.',
+        tipoReferencia: TipoReferencia.DISPOSITIVO,
+        idReferencia: 12n,
+        userIds: [17],
+      },
+      tx,
+    );
+    expect(result).toMatchObject({
+      idUsuarioDispositivo: 12,
+      idUsuario: 17,
+      idDispositivo: 15,
+      alias: 'dispositivo real',
+      ubicacionActiva: true,
+      visibilidadPreferida: VisibilidadPreferida.SOLO_YO,
+      estado: true,
+    });
+    expect(result).not.toHaveProperty('deviceToken');
+    expect(result.dispositivo).not.toHaveProperty('deviceToken');
+    expect(result.dispositivo).not.toHaveProperty('tokenHash');
   });
 });
