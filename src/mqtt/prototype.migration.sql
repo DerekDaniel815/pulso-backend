@@ -1,3 +1,6 @@
+-- Prototipo MQTT. No está en prisma/migrations y no debe aplicarse
+-- mientras HTTPS sea el único transporte.
+
 ALTER TABLE "dispositivo"
 ADD COLUMN "mqtt_password_hash" VARCHAR(64);
 

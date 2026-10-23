@@ -9,7 +9,6 @@ import { DevicesModule } from './devices/devices.module.js';
 import { EmergenciesModule } from './emergencies/emergencies.module.js';
 import { GroupsModule } from './groups/groups.module.js';
 import { LocationsModule } from './locations/locations.module.js';
-import { MqttModule } from './mqtt/mqtt.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { SimulationModule } from './simulation/simulation.module.js';
@@ -31,7 +30,6 @@ const simulationImports =
     ContactsModule,
     GroupsModule,
     LocationsModule,
-    MqttModule,
     EmergenciesModule,
     NotificationsModule,
     ...simulationImports,
