@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { LocationRemovalReason } from '../common/enums.js';
 import { LocationsRealtimeGateway } from './locations-realtime.gateway.js';
 import type {
   EmergencyPublicUpdatedPayload,
@@ -51,11 +52,15 @@ export class LocationRealtimeNotifier {
     this.gateway.emitLocationPublicRemoved({ clavePublica });
   }
 
-  notifyPrivateLocationRemoved(userId: number, idUsuarioDispositivo: number): void {
+  notifyPrivateLocationRemoved(
+    userId: number,
+    idUsuarioDispositivo: number,
+    reason: LocationRemovalReason,
+  ): void {
     this.logger.log(
-      `[WS LOCATION PRIVATE] removed userId=${userId} assignment=${idUsuarioDispositivo}`,
+      `[WS LOCATION PRIVATE] removed userId=${userId} assignment=${idUsuarioDispositivo} reason=${reason}`,
     );
-    this.gateway.emitLocationPrivateRemoved(userId, { idUsuarioDispositivo });
+    this.gateway.emitLocationPrivateRemoved(userId, { idUsuarioDispositivo, reason });
   }
 
   notifyIfPublicAudienceLost(previous: {

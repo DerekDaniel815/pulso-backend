@@ -380,6 +380,56 @@ describe('LocationsService mapa en vivo', () => {
     expect(visible[0]?.location.isLive).toBe(false);
   });
 
+  it('una reactivación no devuelve la coordenada anterior al corte', async () => {
+    const resumedAt = new Date();
+    const previous = new Date(resumedAt.getTime() - 10_000);
+    locationRow.fechaHoraServidor = previous;
+    prisma.usuarioDispositivo.findUnique.mockResolvedValue({
+      ...deviceRow,
+      ubicacionActiva: true,
+      ubicacionVisibleDesde: resumedAt,
+    });
+    prisma.ubicacion.findFirst.mockImplementation(
+      async (args: { where?: { fechaHoraServidor?: { gte?: Date } } }) => {
+        const since = args?.where?.fechaHoraServidor?.gte;
+        if (since && previous < since) return null;
+        return locationRow;
+      },
+    );
+
+    await expect(service.findVisibleForUser(2)).resolves.toEqual([]);
+    expect(prisma.ubicacion.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          fechaHoraServidor: { gte: resumedAt },
+        }),
+      }),
+    );
+  });
+
+  it('una emergencia ACTIVA ignora el corte de reactivación y el TTL corto', async () => {
+    prisma.usuarioDispositivo.findUnique.mockResolvedValue({
+      ...deviceRow,
+      ubicacionActiva: false,
+      ubicacionVisibleDesde: new Date(),
+    });
+    hasActiveEmergency.mockResolvedValue(true);
+    prisma.ubicacion.findFirst.mockImplementation(
+      async (args: { where?: { fechaHoraServidor?: { gte?: Date } } }) => {
+        if (args?.where?.fechaHoraServidor?.gte) return null;
+        return {
+          ...locationRow,
+          fechaHoraServidor: new Date(Date.now() - 120_000),
+        };
+      },
+    );
+
+    const visible = await service.findVisibleForUser(2);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.emergenciaActiva).toBe(true);
+    expect(visible[0]?.location.isLive).toBe(false);
+  });
+
   it('al cerrar SOS no republica una ubicación normal vencida', async () => {
     const notifyPrivateLocationRemoved = vi.fn();
     const notifyLocationPublicRemoved = vi.fn();
@@ -416,8 +466,8 @@ describe('LocationsService mapa en vivo', () => {
     await closing.publishAfterEmergencyEnded(10);
 
     expect(notifier.notifyLocationSaved).not.toHaveBeenCalled();
-    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10);
-    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10);
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10, 'EMERGENCY_ENDED');
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10, 'EMERGENCY_ENDED');
     expect(notifyLocationPublicRemoved).toHaveBeenCalledWith('VIS-10');
   });
 });

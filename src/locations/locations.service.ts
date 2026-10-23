@@ -7,7 +7,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { VisibilidadPreferida } from '../common/enums.js';
+import { LocationRemovalReason, VisibilidadPreferida } from '../common/enums.js';
 import {
   EMERGENCY_SWEEP,
   type EmergencySweep,
@@ -75,6 +75,16 @@ export class LocationsService {
   ): Promise<LocationResponseDto> {
     assertDeviceTimestampNotInFuture(input.fechaHoraDispositivo);
 
+    if (!tx) {
+      const assignment = await this.prisma.usuarioDispositivo.findUnique({
+        where: { idUsuarioDispositivo },
+        select: { ubicacionActiva: true },
+      });
+      if (assignment?.ubicacionActiva === false) {
+        throw new ForbiddenException('El seguimiento de ubicación está desactivado');
+      }
+    }
+
     if (tx) {
       // TODO(fase-2): EmergenciesService.createForDevice llama este método dentro de
       // una transacción (SOS). No emitir location.updated aquí para evitar publicar
@@ -113,7 +123,7 @@ export class LocationsService {
     });
 
     const live = assignment?.ubicacionActiva
-      ? await this.findLiveRow(idUsuarioDispositivo)
+      ? await this.findLiveRow(idUsuarioDispositivo, assignment.ubicacionVisibleDesde)
       : null;
 
     if (live) {
@@ -125,7 +135,11 @@ export class LocationsService {
       idUsuarioDispositivo,
     );
     for (const viewerId of new Set(viewers)) {
-      this.locationRealtimeNotifier.notifyPrivateLocationRemoved(viewerId, idUsuarioDispositivo);
+      this.locationRealtimeNotifier.notifyPrivateLocationRemoved(
+        viewerId,
+        idUsuarioDispositivo,
+        LocationRemovalReason.EMERGENCY_ENDED,
+      );
     }
 
     if (assignment?.visibilidadPreferida === VisibilidadPreferida.PUBLICO) {
@@ -133,12 +147,19 @@ export class LocationsService {
     }
   }
 
-  private async findLiveRow(idUsuarioDispositivo: number): Promise<Ubicacion | null> {
+  private async findLiveRow(
+    idUsuarioDispositivo: number,
+    visibleDesde?: Date | null,
+  ): Promise<Ubicacion | null> {
+    const ttlCutoff = liveCutoff();
+    const since =
+      visibleDesde && visibleDesde.getTime() > ttlCutoff.getTime() ? visibleDesde : ttlCutoff;
+
     return this.prisma.ubicacion.findFirst({
       where: {
         idUsuarioDispositivo,
         fueSincronizadaOffline: false,
-        fechaHoraServidor: { gte: liveCutoff() },
+        fechaHoraServidor: { gte: since },
       },
       orderBy: { fechaHoraServidor: 'desc' },
     });
@@ -176,7 +197,7 @@ export class LocationsService {
 
       const location = emergenciaActiva
         ? await this.findLastKnownRow(assignment.idUsuarioDispositivo)
-        : await this.findLiveRow(assignment.idUsuarioDispositivo);
+        : await this.findLiveRow(assignment.idUsuarioDispositivo, row.ubicacionVisibleDesde);
 
       if (!location) {
         continue;
@@ -222,7 +243,10 @@ export class LocationsService {
         continue;
       }
 
-      const location = await this.findLiveRow(assignment.idUsuarioDispositivo);
+      const location = await this.findLiveRow(
+        assignment.idUsuarioDispositivo,
+        assignment.ubicacionVisibleDesde,
+      );
 
       if (!location) {
         continue;
@@ -269,6 +293,18 @@ export class LocationsService {
         this.locationAccessService.getPublicAudience(assignment),
         this.locationAccessService.hasActiveEmergency(idUsuarioDispositivo),
       ]);
+
+      if (assignment.ubicacionActiva === false && !emergenciaActiva) {
+        return;
+      }
+
+      if (
+        !emergenciaActiva &&
+        assignment.ubicacionVisibleDesde &&
+        Date.parse(location.fechaHoraServidor) < assignment.ubicacionVisibleDesde.getTime()
+      ) {
+        return;
+      }
 
       if (!location.isLive && !emergenciaActiva) {
         return;

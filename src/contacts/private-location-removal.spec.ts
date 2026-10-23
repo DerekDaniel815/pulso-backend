@@ -177,8 +177,8 @@ describe('retiro realtime de marker privado por contacto', () => {
     await service.updateLocationPermission(1, 10, { comparteUbicacion: false });
 
     expect(emitLocationPrivateRemoved).toHaveBeenCalledTimes(2);
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10 });
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 11 });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10, reason: 'PERMISSION_REVOKED' });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 11, reason: 'PERMISSION_REVOKED' });
     expect(emitLocationPrivateRemoved).not.toHaveBeenCalledWith(1, expect.anything());
   });
 
@@ -227,9 +227,9 @@ describe('retiro realtime de marker privado por contacto', () => {
     await service.remove(1, 10);
 
     expect(emitLocationPrivateRemoved).toHaveBeenCalledTimes(3);
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10 });
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 11 });
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(1, { idUsuarioDispositivo: 20 });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10, reason: 'PERMISSION_REVOKED' });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 11, reason: 'PERMISSION_REVOKED' });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(1, { idUsuarioDispositivo: 20, reason: 'PERMISSION_REVOKED' });
     expect(emitLocationPrivateRemoved).not.toHaveBeenCalledWith(1, { idUsuarioDispositivo: 10 });
     expect(emitLocationPrivateRemoved).not.toHaveBeenCalledWith(2, { idUsuarioDispositivo: 20 });
   });

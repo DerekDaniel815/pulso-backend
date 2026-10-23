@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { LocationRemovalReason } from '../common/enums.js';
 import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LocationAccessService } from './location-access.service.js';
@@ -11,10 +12,14 @@ export class PrivateLocationRemovalNotifier {
     private readonly locationRealtimeNotifier: LocationRealtimeNotifier,
   ) {}
 
-  async notifyLostViewers<T>(ownerUserIds: number[], change: () => Promise<T>): Promise<T> {
+  async notifyLostViewers<T>(
+    ownerUserIds: number[],
+    change: () => Promise<T>,
+    reason: LocationRemovalReason = LocationRemovalReason.PERMISSION_REVOKED,
+  ): Promise<T> {
     const before = await this.snapshotViewers([...new Set(ownerUserIds)]);
     const result = await change();
-    await this.emitLostViewers(before);
+    await this.emitLostViewers(before, reason);
     return result;
   }
 
@@ -40,7 +45,10 @@ export class PrivateLocationRemovalNotifier {
     return snapshot;
   }
 
-  private async emitLostViewers(before: Map<number, Set<number>>): Promise<void> {
+  private async emitLostViewers(
+    before: Map<number, Set<number>>,
+    reason: LocationRemovalReason,
+  ): Promise<void> {
     for (const [idUsuarioDispositivo, previousViewers] of before) {
       const currentViewers = new Set(
         await this.locationAccessService.getAuthorizedPrivateViewerUserIds(idUsuarioDispositivo),
@@ -51,6 +59,7 @@ export class PrivateLocationRemovalNotifier {
           this.locationRealtimeNotifier.notifyPrivateLocationRemoved(
             idUsuario,
             idUsuarioDispositivo,
+            reason,
           );
         }
       }

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EstadoEmergencia, EstadoSimulationSession } from '../common/enums.js';
+import { EstadoEmergencia, EstadoSimulationSession, LocationRemovalReason } from '../common/enums.js';
 import type { Prisma, SimulationSession } from '../generated/prisma/client.js';
 import { LocationAccessService } from '../locations/location-access.service.js';
 import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
@@ -299,7 +299,11 @@ export class SimulationSessionService {
 
     for (const idUsuario of snapshot.privateViewers) {
       if (!afterViewers.has(idUsuario)) {
-        this.locationRealtimeNotifier.notifyPrivateLocationRemoved(idUsuario, idUsuarioDispositivo);
+        this.locationRealtimeNotifier.notifyPrivateLocationRemoved(
+          idUsuario,
+          idUsuarioDispositivo,
+          LocationRemovalReason.TRACKING_DISABLED,
+        );
       }
     }
 

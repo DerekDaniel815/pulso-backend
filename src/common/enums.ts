@@ -91,3 +91,12 @@ export enum TipoReferencia {
   DISPOSITIVO = 'DISPOSITIVO',
   CONTACTO = 'CONTACTO',
 }
+
+/** Motivo de `location.private.removed`. No se usa para el TTL de 25 segundos. */
+export enum LocationRemovalReason {
+  TRACKING_DISABLED = 'TRACKING_DISABLED',
+  PERMISSION_REVOKED = 'PERMISSION_REVOKED',
+  VISIBILITY_CHANGED = 'VISIBILITY_CHANGED',
+  DEVICE_UNLINKED = 'DEVICE_UNLINKED',
+  EMERGENCY_ENDED = 'EMERGENCY_ENDED',
+}

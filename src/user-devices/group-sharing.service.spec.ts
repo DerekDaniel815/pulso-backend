@@ -117,7 +117,10 @@ describe('sharing de grupo: realtime al perder acceso normal', () => {
     await sharing.setGroupSharing(1, 10, 1, false);
 
     expect(emitLocationPrivateRemoved).toHaveBeenCalledTimes(1);
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10 });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, {
+      idUsuarioDispositivo: 10,
+      reason: 'PERMISSION_REVOKED',
+    });
 
     emitLocationPrivateRemoved.mockClear();
     grants = [
@@ -133,7 +136,10 @@ describe('sharing de grupo: realtime al perder acceso normal', () => {
   it('excluir a un miembro emite private.removed solo si no le queda otra vía normal', async () => {
     await sharing.setMemberSharing(1, 10, 1, 2, false);
 
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10 });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, {
+      idUsuarioDispositivo: 10,
+      reason: 'PERMISSION_REVOKED',
+    });
 
     emitLocationPrivateRemoved.mockClear();
     exclusions = [];
@@ -147,7 +153,10 @@ describe('sharing de grupo: realtime al perder acceso normal', () => {
   it('G. expulsar a B emite private.removed si pierde la última vía', async () => {
     await groupService.removeMember(1, 1, 2);
 
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10 });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, {
+      idUsuarioDispositivo: 10,
+      reason: 'PERMISSION_REVOKED',
+    });
     expect(members.find((row) => row.idUsuario === 2 && row.idGrupo === 1)?.estado).toBe(false);
   });
 
@@ -155,7 +164,10 @@ describe('sharing de grupo: realtime al perder acceso normal', () => {
     await groupService.update(1, 1, { estado: false });
 
     expect(groups.find((row) => row.idGrupo === 1)?.estado).toBe(false);
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10 });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, {
+      idUsuarioDispositivo: 10,
+      reason: 'PERMISSION_REVOKED',
+    });
   });
 
   it('J. con emergencia activa, apagar el grant no retira el marker privado del compañero', async () => {

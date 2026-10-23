@@ -8,6 +8,7 @@ import {
 import {
   AlcanceNotificacion,
   EstadoDispositivo,
+  LocationRemovalReason,
   TipoNotificacion,
   TipoReferencia,
   VisibilidadPreferida,
@@ -117,6 +118,7 @@ export class UserDevicesService {
     }
 
     const turningTrackingOff = current.ubicacionActiva && dto.ubicacionActiva === false;
+    const turningTrackingOn = !current.ubicacionActiva && dto.ubicacionActiva === true;
     const visibilityChanging =
       dto.visibilidadPreferida != null &&
       dto.visibilidadPreferida !== current.visibilidadPreferida;
@@ -136,13 +138,18 @@ export class UserDevicesService {
           alias: dto.alias,
           visibilidadPreferida: dto.visibilidadPreferida,
           ubicacionActiva: dto.ubicacionActiva,
+          ...(turningTrackingOn ? { ubicacionVisibleDesde: new Date() } : {}),
         },
         include: { dispositivo: true },
       });
 
     const updated =
       visibilityChanging && !turningTrackingOff
-        ? await this.privateLocationRemoval.notifyLostViewers([idUsuario], persist)
+        ? await this.privateLocationRemoval.notifyLostViewers(
+            [idUsuario],
+            persist,
+            LocationRemovalReason.VISIBILITY_CHANGED,
+          )
         : await persist();
 
     const nextAudience = await this.locationAccessService.getPublicAudience(updated);
@@ -150,7 +157,11 @@ export class UserDevicesService {
 
     if (turningTrackingOff && !emergencyActive) {
       for (const viewerId of new Set(privateViewers)) {
-        this.locationRealtimeNotifier.notifyPrivateLocationRemoved(viewerId, idUsuarioDispositivo);
+        this.locationRealtimeNotifier.notifyPrivateLocationRemoved(
+          viewerId,
+          idUsuarioDispositivo,
+          LocationRemovalReason.TRACKING_DISABLED,
+        );
       }
 
       if (
@@ -173,6 +184,14 @@ export class UserDevicesService {
       throw new BadRequestException('La asignación ya está desvinculada');
     }
 
+    const emergencyActive = await this.locationAccessService.hasActiveEmergency(
+      idUsuarioDispositivo,
+    );
+    const privateViewers = emergencyActive
+      ? []
+      : await this.locationAccessService.getAuthorizedPrivateViewerUserIds(idUsuarioDispositivo);
+    const previousAudience = await this.locationAccessService.getPublicAudience(current);
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const assignment = await tx.usuarioDispositivo.update({
         where: { idUsuarioDispositivo },
@@ -191,6 +210,20 @@ export class UserDevicesService {
 
       return assignment;
     });
+
+    if (!emergencyActive) {
+      for (const viewerId of new Set(privateViewers)) {
+        this.locationRealtimeNotifier.notifyPrivateLocationRemoved(
+          viewerId,
+          idUsuarioDispositivo,
+          LocationRemovalReason.DEVICE_UNLINKED,
+        );
+      }
+
+      if (previousAudience.origen === 'PUBLICO' && previousAudience.clavePublica) {
+        this.locationRealtimeNotifier.notifyLocationPublicRemoved(previousAudience.clavePublica);
+      }
+    }
 
     return toUserDeviceResponse(updated);
   }

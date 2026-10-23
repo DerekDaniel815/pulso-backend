@@ -24,6 +24,7 @@ describe('DeviceApiService reportLocation', () => {
       { createForAssignment } as never,
       {} as never,
       {} as never,
+      { hasActiveEmergency: vi.fn().mockResolvedValue(false) } as never,
     );
   });
 
@@ -45,5 +46,51 @@ describe('DeviceApiService reportLocation', () => {
         fechaHoraDispositivo: '2026-09-10T06:00:00.000Z',
       }),
     );
+  });
+
+  it('con ubicacionActiva=false no guarda la ubicación e informa tracking y emergencia', async () => {
+    const hasActiveEmergency = vi.fn().mockResolvedValue(true);
+    service = new DeviceApiService(
+      { createForAssignment } as never,
+      {} as never,
+      {} as never,
+      { hasActiveEmergency } as never,
+    );
+
+    await expect(
+      service.reportLocation({ ...assignedDevice, ubicacionActiva: false }, {
+        latitude: 37.42,
+        longitude: -122.08,
+        accuracy: 5,
+        deviceTimestamp: '2026-09-10T06:00:00.000Z',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message: 'Seguimiento desactivado',
+        trackingEnabled: false,
+        emergencyActive: true,
+      },
+    });
+    expect(createForAssignment).not.toHaveBeenCalled();
+  });
+});
+
+describe('DeviceApiService heartbeat', () => {
+  it('devuelve trackingEnabled y emergencyActive sin aceptar una ubicación', async () => {
+    const touchConnection = vi.fn().mockResolvedValue(new Date('2026-10-23T05:00:00.000Z'));
+    const hasActiveEmergency = vi.fn().mockResolvedValue(false);
+    const service = new DeviceApiService(
+      { createForAssignment: vi.fn() } as never,
+      {} as never,
+      { touchConnection } as never,
+      { hasActiveEmergency } as never,
+    );
+
+    await expect(service.heartbeat({ ...assignedDevice, ubicacionActiva: false })).resolves.toEqual({
+      ok: true,
+      ultimaConexion: '2026-10-23T05:00:00.000Z',
+      trackingEnabled: false,
+      emergencyActive: false,
+    });
   });
 });

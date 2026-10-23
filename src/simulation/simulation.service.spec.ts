@@ -89,6 +89,7 @@ describe('SimulationService', () => {
       { createForAssignment } as never,
       { createForDevice: reportEmergency } as never,
       {} as never,
+      { hasActiveEmergency: vi.fn().mockResolvedValue(false) } as never,
     );
 
     simulationSessionService = {

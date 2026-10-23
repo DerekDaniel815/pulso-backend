@@ -138,8 +138,8 @@ describe('UserDevicesService.update visibilidad pública', () => {
 
     expect(getAuthorizedPrivateViewerUserIds).toHaveBeenCalledWith(10);
     expect(notifyPrivateLocationRemoved).toHaveBeenCalledTimes(2);
-    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10);
-    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10);
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10, 'TRACKING_DISABLED');
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10, 'TRACKING_DISABLED');
     expect(notifyLocationPublicRemoved).not.toHaveBeenCalled();
     expect(prisma.usuarioDispositivo.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -163,7 +163,7 @@ describe('UserDevicesService.update visibilidad pública', () => {
 
     expect(notifyLocationPublicRemoved).toHaveBeenCalledOnce();
     expect(notifyLocationPublicRemoved).toHaveBeenCalledWith('VIS-10');
-    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10);
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10, 'TRACKING_DISABLED');
   });
 
   it('C. tracking OFF con emergencia ACTIVA no retira markers', async () => {
@@ -197,6 +197,14 @@ describe('UserDevicesService.update visibilidad pública', () => {
 
     await service.update(1, 10, { ubicacionActiva: true });
 
+    expect(prisma.usuarioDispositivo.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          ubicacionActiva: true,
+          ubicacionVisibleDesde: expect.any(Date),
+        }),
+      }),
+    );
     expect(notifyPrivateLocationRemoved).not.toHaveBeenCalled();
     expect(notifyLocationPublicRemoved).not.toHaveBeenCalled();
     expect(getAuthorizedPrivateViewerUserIds).not.toHaveBeenCalled();

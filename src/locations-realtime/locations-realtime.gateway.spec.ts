@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { RolSistema } from '../common/enums.js';
+import { LocationRemovalReason, RolSistema } from '../common/enums.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { LocationsRealtimeGateway } from './locations-realtime.gateway.js';
 
@@ -162,12 +162,18 @@ describe('LocationsRealtimeGateway', () => {
     const emit = vi.fn();
     gateway.server = { to: vi.fn().mockReturnValue({ emit }) } as never;
 
-    gateway.emitLocationPrivateRemoved(2, { idUsuarioDispositivo: 10 });
+    gateway.emitLocationPrivateRemoved(2, {
+      idUsuarioDispositivo: 10,
+      reason: LocationRemovalReason.PERMISSION_REVOKED,
+    });
 
     expect(gateway.server.to).toHaveBeenCalledTimes(1);
     expect(gateway.server.to).toHaveBeenCalledWith('user:2');
     expect(gateway.server.to).not.toHaveBeenCalledWith('public:locations');
-    expect(emit).toHaveBeenCalledWith('location.private.removed', { idUsuarioDispositivo: 10 });
+    expect(emit).toHaveBeenCalledWith('location.private.removed', {
+      idUsuarioDispositivo: 10,
+      reason: LocationRemovalReason.PERMISSION_REVOKED,
+    });
   });
 
   it('emite notification.created a la room del usuario', () => {

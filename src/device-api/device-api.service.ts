@@ -5,6 +5,7 @@ import { DevicesService } from '../devices/devices.service.js';
 import { EmergenciesService } from '../emergencies/emergencies.service.js';
 import type { LocationInput } from '../locations/dto/location-input.dto.js';
 import { LocationsService } from '../locations/locations.service.js';
+import { LocationAccessService } from '../locations/location-access.service.js';
 import type { DeviceEmergencyDto } from './dto/device-emergency.dto.js';
 import type {
   DeviceEmergencyResponseDto,
@@ -19,13 +20,14 @@ export class DeviceApiService {
     private readonly locationsService: LocationsService,
     private readonly emergenciesService: EmergenciesService,
     private readonly devicesService: DevicesService,
+    private readonly locationAccessService: LocationAccessService,
   ) {}
 
   async reportLocation(
     device: AuthenticatedDevice,
     dto: DeviceLocationDto,
   ): Promise<DeviceLocationResponseDto> {
-    this.assertPeriodicTrackingAllowed(device);
+    await this.assertPeriodicTrackingAllowed(device);
 
     const saved = await this.locationsService.createForAssignment(
       device.idUsuarioDispositivo,
@@ -69,15 +71,20 @@ export class DeviceApiService {
   }
 
   async heartbeat(device: AuthenticatedDevice): Promise<DeviceHeartbeatResponseDto> {
-    const ultimaConexion = await this.devicesService.touchConnection(device.idDispositivo);
+    const [ultimaConexion, emergencyActive] = await Promise.all([
+      this.devicesService.touchConnection(device.idDispositivo),
+      this.locationAccessService.hasActiveEmergency(device.idUsuarioDispositivo),
+    ]);
 
     return {
       ok: true,
       ultimaConexion: ultimaConexion.toISOString(),
+      trackingEnabled: device.ubicacionActiva,
+      emergencyActive,
     };
   }
 
-  private assertPeriodicTrackingAllowed(device: AuthenticatedDevice): void {
+  private async assertPeriodicTrackingAllowed(device: AuthenticatedDevice): Promise<void> {
     if (device.dispositivoEstado === EstadoDispositivo.MANTENIMIENTO) {
       throw new ForbiddenException(
         'El dispositivo está en mantenimiento; no se acepta seguimiento periódico',
@@ -91,9 +98,14 @@ export class DeviceApiService {
     }
 
     if (!device.ubicacionActiva) {
-      throw new ForbiddenException(
-        'El seguimiento de ubicación está desactivado (ubicacion_activa = false)',
+      const emergencyActive = await this.locationAccessService.hasActiveEmergency(
+        device.idUsuarioDispositivo,
       );
+      throw new ForbiddenException({
+        message: 'Seguimiento desactivado',
+        trackingEnabled: false,
+        emergencyActive,
+      });
     }
   }
 

@@ -19,4 +19,14 @@ export class DeviceHeartbeatResponseDto {
     description: 'Última comunicación técnica registrada (dispositivo.ultima_conexion).',
   })
   ultimaConexion: string;
+
+  @ApiProperty({
+    description: 'Estado efectivo de ubicacionActiva. No cambia por revocar un contacto ni por SOLO_YO.',
+  })
+  trackingEnabled: boolean;
+
+  @ApiProperty({
+    description: 'true si la asignación tiene una emergencia ACTIVA. Tiene prioridad sobre la pausa normal.',
+  })
+  emergencyActive: boolean;
 }

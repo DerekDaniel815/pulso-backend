@@ -398,8 +398,8 @@ describe('SimulationSessionService', () => {
     await service.expireSessions();
 
     expect(assignment.ubicacionActiva).toBe(false);
-    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10);
-    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10);
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10, 'TRACKING_DISABLED');
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10, 'TRACKING_DISABLED');
     expect(notifyLocationPublicRemoved).toHaveBeenCalledOnce();
     expect(notifyLocationPublicRemoved).toHaveBeenCalledWith('VIS-10');
     expect(notifyEmergencyPublicEnded).not.toHaveBeenCalled();
@@ -500,8 +500,8 @@ describe('SimulationSessionService', () => {
     expect(emergencies[0]?.estado).toBe(EstadoEmergencia.FINALIZADA);
     expect(notifyEmergencyPublicEnded).toHaveBeenCalledOnce();
     expect(notifyEmergencyPublicEnded).toHaveBeenCalledWith('EME-SIM');
-    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10);
-    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10);
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10, 'TRACKING_DISABLED');
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10, 'TRACKING_DISABLED');
     expect(notifyLocationPublicRemoved).not.toHaveBeenCalled();
   });
 

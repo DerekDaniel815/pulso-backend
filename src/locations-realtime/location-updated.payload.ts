@@ -1,3 +1,4 @@
+import type { LocationRemovalReason } from '../common/enums.js';
 import type { LocationResponseDto } from '../locations/dto/location-response.dto.js';
 import type { PublicLocationPointDto } from '../locations/dto/visible-location.dto.js';
 
@@ -34,5 +35,6 @@ export type LocationPublicRemovedPayload = {
 
 export type LocationPrivateRemovedPayload = {
   idUsuarioDispositivo: number;
+  reason: LocationRemovalReason;
 };
 

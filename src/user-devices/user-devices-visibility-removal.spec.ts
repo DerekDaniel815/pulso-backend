@@ -108,7 +108,10 @@ describe('cambio de visibilidadPreferida y marker privado', () => {
     await service.update(1, 10, { visibilidadPreferida: VisibilidadPreferida.SOLO_YO });
 
     expect(emitLocationPrivateRemoved).toHaveBeenCalledTimes(1);
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10 });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, {
+      idUsuarioDispositivo: 10,
+      reason: 'VISIBILITY_CHANGED',
+    });
     expect(emitLocationUpdated).not.toHaveBeenCalled();
   });
 
@@ -129,7 +132,10 @@ describe('cambio de visibilidadPreferida y marker privado', () => {
   it('C. GRUPO → PUBLICO retira el privado de grupo y no toca la capa pública', async () => {
     await service.update(1, 10, { visibilidadPreferida: VisibilidadPreferida.PUBLICO });
 
-    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, { idUsuarioDispositivo: 10 });
+    expect(emitLocationPrivateRemoved).toHaveBeenCalledWith(2, {
+      idUsuarioDispositivo: 10,
+      reason: 'VISIBILITY_CHANGED',
+    });
     expect(emitLocationPublicRemoved).not.toHaveBeenCalled();
     expect(emitLocationPublicUpdated).not.toHaveBeenCalled();
     expect(emitLocationUpdated).not.toHaveBeenCalled();

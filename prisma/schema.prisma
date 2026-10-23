@@ -99,6 +99,8 @@ model UsuarioDispositivo {
   idDispositivo        Int       @map("id_dispositivo")
   alias                String?   @db.VarChar(100)
   ubicacionActiva      Boolean   @default(false) @map("ubicacion_activa")
+  /// Coordenadas con fechaHoraServidor anterior no vuelven a ser marcador en vivo.
+  ubicacionVisibleDesde DateTime? @map("ubicacion_visible_desde") @db.Timestamptz(6)
   visibilidadPreferida String    @default("SOLO_YO") @map("visibilidad_preferida") @db.VarChar(20)
   fechaAsignacion      DateTime  @default(now()) @map("fecha_asignacion") @db.Timestamptz(6)
   fechaDesvinculacion  DateTime? @map("fecha_desvinculacion") @db.Timestamptz(6)

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LocationRemovalReason } from '../common/enums.js';
 import { LocationRealtimeNotifier } from './location-realtime-notifier.service.js';
 import type { LocationsRealtimeGateway } from './locations-realtime.gateway.js';
 import type { LocationUpdatedPayload } from './location-updated.payload.js';
@@ -89,11 +90,12 @@ describe('LocationRealtimeNotifier', () => {
   });
 
   it('emite location.private.removed a un solo usuario', () => {
-    notifier.notifyPrivateLocationRemoved(2, 10);
+    notifier.notifyPrivateLocationRemoved(2, 10, LocationRemovalReason.PERMISSION_REVOKED);
 
     expect(gateway.emitLocationPrivateRemoved).toHaveBeenCalledOnce();
     expect(gateway.emitLocationPrivateRemoved).toHaveBeenCalledWith(2, {
       idUsuarioDispositivo: 10,
+    reason: LocationRemovalReason.PERMISSION_REVOKED,
     });
   });
 
