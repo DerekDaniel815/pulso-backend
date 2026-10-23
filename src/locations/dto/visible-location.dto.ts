@@ -44,6 +44,18 @@ export class PublicLocationPointDto {
 
   @ApiProperty()
   fechaHoraDispositivo: string;
+
+  @ApiProperty()
+  fechaHoraServidor: string;
+
+  @ApiProperty()
+  offlineSync: boolean;
+
+  @ApiProperty()
+  isLive: boolean;
+
+  @ApiPropertyOptional()
+  liveExpiresAt: string | null;
 }
 
 export class PublicLocationMarkerDto {

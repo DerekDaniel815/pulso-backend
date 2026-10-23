@@ -15,6 +15,8 @@ const payload: LocationUpdatedPayload = {
     fechaHoraDispositivo: '2026-09-10T06:00:00.000Z',
     fechaHoraServidor: '2026-09-10T06:00:01.000Z',
     fueSincronizadaOffline: false,
+    isLive: true,
+    liveExpiresAt: '2026-09-10T06:01:31.000Z',
   },
   assignment: {
     idUsuarioDispositivo: 1,
@@ -64,6 +66,10 @@ describe('LocationRealtimeNotifier', () => {
         longitud: -122.08,
         altitud: null,
         fechaHoraDispositivo: '2026-09-10T06:00:00.000Z',
+        fechaHoraServidor: '2026-09-10T06:00:01.000Z',
+        offlineSync: false,
+        isLive: true,
+        liveExpiresAt: '2026-09-10T06:01:31.000Z',
       },
     };
 

@@ -23,3 +23,9 @@ services:
         value: "45"
       - key: SIMULATION_EXPIRE_INTERVAL_MS
         value: "10000"
+      - key: LOCATION_LIVE_TTL_SECONDS
+        value: "90"
+      - key: EMERGENCY_MAX_ACTIVE_DAYS
+        value: "30"
+      - key: EMERGENCY_EXPIRE_INTERVAL_MS
+        value: "60000"

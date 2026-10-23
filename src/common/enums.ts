@@ -54,6 +54,18 @@ export enum ActivadaDesde {
   WEB = 'WEB',
 }
 
+export enum MotivoFinalizacionEmergencia {
+  MANUAL_APP = 'MANUAL_APP',
+  MANUAL_DEVICE = 'MANUAL_DEVICE',
+  EXPIRADA = 'EXPIRADA',
+}
+
+export enum FinalizadaDesde {
+  APP = 'APP',
+  DISPOSITIVO = 'DISPOSITIVO',
+  SISTEMA = 'SISTEMA',
+}
+
 export enum TipoNotificacion {
   EMERGENCIA = 'EMERGENCIA',
   INVITACION_GRUPO = 'INVITACION_GRUPO',

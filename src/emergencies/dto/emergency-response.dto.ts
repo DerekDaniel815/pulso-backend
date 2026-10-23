@@ -62,6 +62,12 @@ export class EmergencyResponseDto {
   @ApiPropertyOptional()
   fechaFin: string | null;
 
+  @ApiPropertyOptional({ enum: ['MANUAL_APP', 'MANUAL_DEVICE', 'EXPIRADA'] })
+  motivoFinalizacion: string | null;
+
+  @ApiPropertyOptional({ enum: ['APP', 'DISPOSITIVO', 'SISTEMA'] })
+  finalizadaDesde: string | null;
+
   @ApiPropertyOptional({ type: LocationResponseDto })
   ubicacion: LocationResponseDto | null;
 
@@ -104,6 +110,8 @@ export function toEmergencyResponse(
     descripcion: emergency.descripcion,
     fechaInicio: toIso(emergency.fechaInicio) as string,
     fechaFin: toIso(emergency.fechaFin),
+    motivoFinalizacion: emergency.motivoFinalizacion,
+    finalizadaDesde: emergency.finalizadaDesde,
     ubicacion: location ? toLocationResponse(location) : null,
     fechaUltimaUbicacion: location ? (toIso(location.fechaHoraDispositivo) as string) : null,
   };

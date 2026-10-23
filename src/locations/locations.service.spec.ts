@@ -54,7 +54,11 @@ describe('LocationsService realtime', () => {
 
   it('emite location.updated al propietario después de persistir sin tx', async () => {
     prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => Promise<unknown>) => {
-      prisma.ubicacion.create.mockResolvedValue(savedRow);
+      prisma.ubicacion.create.mockResolvedValue({
+        ...savedRow,
+        fechaHoraDispositivo: new Date(),
+        fechaHoraServidor: new Date(),
+      });
       prisma.dispositivo.update.mockResolvedValue({});
       return callback(prisma);
     });
@@ -110,6 +114,18 @@ describe('LocationsService realtime', () => {
     expect(notifier.notifyLocationSaved).not.toHaveBeenCalled();
     expect(tx.ubicacion.create).toHaveBeenCalledOnce();
   });
+
+  it('rechaza deviceTimestamp más de dos minutos en el futuro', async () => {
+    const future = new Date(Date.now() + 3 * 60 * 1000).toISOString();
+    await expect(
+      service.createForAssignment(1, 5, {
+        latitud: 37.42,
+        longitud: -122.08,
+        fechaHoraDispositivo: future,
+      }),
+    ).rejects.toThrow(/futuro/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 });
 
 describe('LocationsService mapa en vivo', () => {
@@ -144,6 +160,8 @@ describe('LocationsService mapa en vivo', () => {
   let service: LocationsService;
 
   beforeEach(() => {
+    locationRow.fechaHoraServidor = new Date();
+    locationRow.fechaHoraDispositivo = new Date();
     prisma = {
       usuarioDispositivo: {
         findUnique: vi.fn().mockResolvedValue(deviceRow),
@@ -261,7 +279,145 @@ describe('LocationsService mapa en vivo', () => {
     expect(latest.idUbicacion).toBe('6');
     expect(history).toHaveLength(1);
     expect(history[0]?.idUbicacion).toBe('6');
+    expect(latest.isLive).toBe(true);
+    expect(latest.liveExpiresAt).toEqual(expect.any(String));
     expect(prisma.ubicacion.findFirst).toHaveBeenCalled();
     expect(prisma.ubicacion.findMany).toHaveBeenCalled();
+  });
+
+  it('SOLO_YO con ubicación vencida no entra al mapa y latest la conserva', async () => {
+    const stale = {
+      ...locationRow,
+      fechaHoraServidor: new Date(Date.now() - 120_000),
+      fechaHoraDispositivo: new Date(Date.now() - 120_000),
+    };
+    prisma.ubicacion.findFirst.mockImplementation(async (args: { where?: { fechaHoraServidor?: { gte?: Date } } }) => {
+      if (args?.where?.fechaHoraServidor?.gte) return null;
+      return stale;
+    });
+
+    await expect(service.findVisibleForUser(2)).resolves.toEqual([]);
+    const latest = await service.findLatestByAssignment(2, 10);
+    expect(latest.isLive).toBe(false);
+    expect(latest.idUbicacion).toBe('6');
+  });
+
+  it('contacto autorizado con ubicación reciente entra y sin reciente no', async () => {
+    findVisibleAssignments.mockResolvedValue([
+      { idUsuarioDispositivo: 10, idUsuario: 9, visibilidadPreferida: 'SOLO_YO', estado: true },
+    ]);
+    const visible = await service.findVisibleForUser(2);
+    expect(visible).toHaveLength(1);
+
+    prisma.ubicacion.findFirst.mockImplementation(
+      async (args: { where?: { fechaHoraServidor?: { gte?: Date } } }) => {
+        if (args?.where?.fechaHoraServidor?.gte) return null;
+        return {
+          ...locationRow,
+          fechaHoraServidor: new Date(Date.now() - 120_000),
+        };
+      },
+    );
+    await expect(service.findVisibleForUser(2)).resolves.toEqual([]);
+  });
+
+  it('contacto no autorizado o miembro excluido no recibe marker aunque exista coordenada', async () => {
+    findVisibleAssignments.mockResolvedValue([]);
+    await expect(service.findVisibleForUser(2)).resolves.toEqual([]);
+  });
+
+  it('grupo autorizado con ubicación reciente entra al mapa', async () => {
+    findVisibleAssignments.mockResolvedValue([
+      { idUsuarioDispositivo: 10, idUsuario: 9, visibilidadPreferida: 'GRUPO', estado: true },
+    ]);
+    const visible = await service.findVisibleForUser(4);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.assignment.idUsuarioDispositivo).toBe(10);
+  });
+
+  it('público reciente se publica y público vencido no', async () => {
+    prisma.usuarioDispositivo.findMany.mockResolvedValue([
+      {
+        idUsuarioDispositivo: 10,
+        visibilidadPreferida: 'PUBLICO',
+        ubicacionActiva: true,
+        estado: true,
+      },
+    ]);
+    getPublicAudience.mockResolvedValue({
+      isPublic: true,
+      origen: 'PUBLICO',
+      clavePublica: 'VIS-10',
+      codigoPublico: null,
+    });
+
+    const live = await service.findPublicMarkers();
+    expect(live).toHaveLength(1);
+    expect(live[0]?.ubicacion.isLive).toBe(true);
+
+    prisma.ubicacion.findFirst.mockImplementation(
+      async (args: { where?: { fechaHoraServidor?: { gte?: Date } } }) => {
+        if (args?.where?.fechaHoraServidor?.gte) return null;
+        return {
+          ...locationRow,
+          fechaHoraServidor: new Date(Date.now() - 120_000),
+        };
+      },
+    );
+    await expect(service.findPublicMarkers()).resolves.toEqual([]);
+  });
+
+  it('emergencia activa conserva la última coordenada aunque supere el TTL', async () => {
+    hasActiveEmergency.mockResolvedValue(true);
+    prisma.ubicacion.findFirst.mockResolvedValue({
+      ...locationRow,
+      fechaHoraServidor: new Date(Date.now() - 120_000),
+    });
+
+    const visible = await service.findVisibleForUser(2);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.emergenciaActiva).toBe(true);
+    expect(visible[0]?.location.isLive).toBe(false);
+  });
+
+  it('al cerrar SOS no republica una ubicación normal vencida', async () => {
+    const notifyPrivateLocationRemoved = vi.fn();
+    const notifyLocationPublicRemoved = vi.fn();
+    const notifier = {
+      notifyLocationSaved: vi.fn(),
+      notifyPrivateLocationRemoved,
+      notifyLocationPublicRemoved,
+    };
+    const closing = new LocationsService(
+      prisma as unknown as PrismaService,
+      {
+        findVisibleAssignments,
+        hasActiveEmergency,
+        getPublicAudience,
+        canViewAssignment,
+        getAuthorizedPrivateViewerUserIds: vi.fn().mockResolvedValue([1, 2]),
+      } as never,
+      notifier as unknown as LocationRealtimeNotifier,
+    );
+    prisma.ubicacion.findFirst.mockImplementation(
+      async (args: { where?: { fechaHoraServidor?: { gte?: Date } } }) => {
+        if (args?.where?.fechaHoraServidor?.gte) return null;
+        return {
+          ...locationRow,
+          fechaHoraServidor: new Date(Date.now() - 120_000),
+        };
+      },
+    );
+    prisma.usuarioDispositivo.findUnique.mockResolvedValue({
+      ...deviceRow,
+      visibilidadPreferida: 'PUBLICO',
+    });
+
+    await closing.publishAfterEmergencyEnded(10);
+
+    expect(notifier.notifyLocationSaved).not.toHaveBeenCalled();
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(1, 10);
+    expect(notifyPrivateLocationRemoved).toHaveBeenCalledWith(2, 10);
+    expect(notifyLocationPublicRemoved).toHaveBeenCalledWith('VIS-10');
   });
 });

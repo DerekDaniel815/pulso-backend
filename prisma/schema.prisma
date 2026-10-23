@@ -219,11 +219,14 @@ model Ubicacion {
   usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_ubicacion_usuario_dispositivo")
 
   @@index([idUsuarioDispositivo, fechaHoraDispositivo(sort: Desc)], map: "ix_ubicacion_asignacion_fecha")
+  @@index([idUsuarioDispositivo, fechaHoraServidor(sort: Desc)], map: "ix_ubicacion_asignacion_servidor")
   @@map("ubicacion")
 }
 
 /// estado: ACTIVA | FINALIZADA
 /// activadaDesde: DISPOSITIVO | APP | WEB
+/// motivoFinalizacion: MANUAL_APP | MANUAL_DEVICE | EXPIRADA
+/// finalizadaDesde: APP | DISPOSITIVO | SISTEMA
 model Emergencia {
   idEmergencia         BigInt    @id @default(autoincrement()) @map("id_emergencia")
   codigoPublico        String    @unique @map("codigo_publico") @db.VarChar(30)
@@ -234,12 +237,16 @@ model Emergencia {
   fechaInicio          DateTime  @default(now()) @map("fecha_inicio") @db.Timestamptz(6)
   fechaFin             DateTime? @map("fecha_fin") @db.Timestamptz(6)
   activadaDesde        String    @map("activada_desde") @db.VarChar(20)
+  motivoFinalizacion   String?   @map("motivo_finalizacion") @db.VarChar(20)
+  finalizadaDesde      String?   @map("finalizada_desde") @db.VarChar(20)
   descripcion          String?   @db.VarChar(500)
 
   usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_emergencia_usuario_dispositivo")
   simulationSession  SimulationSession? @relation(fields: [idSimulationSession], references: [idSimulationSession], onDelete: NoAction, onUpdate: NoAction, map: "fk_emergencia_simulation_session")
 
+  @@unique([idUsuarioDispositivo], map: "ux_emergencia_activa", where: raw("(estado = 'ACTIVA')"))
   @@index([estado], map: "ix_emergencia_estado")
+  @@index([estado, fechaInicio], map: "ix_emergencia_estado_inicio")
   @@index([idSimulationSession], map: "ix_emergencia_simulation_session")
   @@map("emergencia")
 }

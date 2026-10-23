@@ -11,16 +11,20 @@ import {
   AlcanceNotificacion,
   EstadoContacto,
   EstadoEmergencia,
+  FinalizadaDesde,
+  MotivoFinalizacionEmergencia,
   TipoNotificacion,
   TipoReferencia,
 } from '../common/enums.js';
 import type { LocationInput } from '../locations/dto/location-input.dto.js';
+import { toLocationResponse } from '../locations/dto/location-response.dto.js';
 import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { LocationAccessService } from '../locations/location-access.service.js';
 import { LocationsService } from '../locations/locations.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateEmergencyDto } from './dto/create-emergency.dto.js';
+import { EmergencyExpirationService } from './emergency-expiration.service.js';
 import {
   toEmergencyResponse,
   toPublicEmergencyResponse,
@@ -36,6 +40,7 @@ export class EmergenciesService {
     private readonly locationAccessService: LocationAccessService,
     private readonly locationsService: LocationsService,
     private readonly locationRealtimeNotifier: LocationRealtimeNotifier,
+    private readonly emergencyExpiration: EmergencyExpirationService,
   ) {}
 
   async create(idUsuario: number, dto: CreateEmergencyDto): Promise<EmergencyResponseDto> {
@@ -77,6 +82,11 @@ export class EmergenciesService {
           descripcion: dto.descripcion,
           estado: EstadoEmergencia.ACTIVA,
         },
+      }).catch((error: unknown) => {
+        if (isActiveEmergencyConflict(error)) {
+          throw new ConflictException('Ya existe una emergencia activa para esta asignación');
+        }
+        throw error;
       });
 
       await this.notificationsService.createForUsers(
@@ -152,6 +162,11 @@ export class EmergenciesService {
           activadaDesde: ActivadaDesde.DISPOSITIVO,
           estado: EstadoEmergencia.ACTIVA,
         },
+      }).catch((error: unknown) => {
+        if (isActiveEmergencyConflict(error)) {
+          throw new ConflictException('Ya existe una emergencia activa para esta asignación');
+        }
+        throw error;
       });
 
       await this.notificationsService.createForUsers(
@@ -190,34 +205,33 @@ export class EmergenciesService {
     }
 
     if (emergency.estado === EstadoEmergencia.FINALIZADA) {
-      throw new BadRequestException('La emergencia ya está finalizada');
+      const location = await this.findLatestLocation(emergency.idUsuarioDispositivo);
+      return toEmergencyResponse(emergency, location);
     }
 
-    const updated = await this.prisma.emergencia.update({
-      where: { idEmergencia },
-      data: {
-        estado: EstadoEmergencia.FINALIZADA,
-        fechaFin: new Date(),
-      },
+    const finished = await this.emergencyExpiration.finalizeIfActive(idEmergencia, {
+      motivoFinalizacion: MotivoFinalizacionEmergencia.MANUAL_APP,
+      finalizadaDesde: FinalizadaDesde.APP,
     });
 
-    const location = await this.findLatestLocation(updated.idUsuarioDispositivo);
-    this.locationRealtimeNotifier.notifyEmergencyPublicEnded(updated.codigoPublico);
-    await this.locationsService.publishLatestForAssignment(updated.idUsuarioDispositivo);
-
-    const assignment = emergency.usuarioDispositivo;
-    const publicAudience = await this.locationAccessService.getPublicAudience(assignment);
-
-    if (!publicAudience.isPublic) {
-      this.locationRealtimeNotifier.notifyLocationPublicRemoved(
-        `VIS-${assignment.idUsuarioDispositivo}`,
-      );
+    if (finished) {
+      return finished;
     }
 
-    return toEmergencyResponse(updated, location);
+    const current = await this.prisma.emergencia.findUnique({
+      where: { idEmergencia },
+    });
+
+    if (!current || current.estado !== EstadoEmergencia.FINALIZADA) {
+      throw new BadRequestException('La emergencia no se pudo finalizar');
+    }
+
+    const location = await this.findLatestLocation(current.idUsuarioDispositivo);
+    return toEmergencyResponse(current, location);
   }
 
   async findActiveForUser(idUsuario: number): Promise<EmergencyResponseDto[]> {
+    await this.emergencyExpiration.sweepOverdue();
     const emergencies = await this.prisma.emergencia.findMany({
       where: { estado: EstadoEmergencia.ACTIVA },
       include: { usuarioDispositivo: true },
@@ -244,6 +258,7 @@ export class EmergenciesService {
   }
 
   async findPublic(): Promise<PublicEmergencyResponseDto[]> {
+    await this.emergencyExpiration.sweepOverdue();
     const emergencies = await this.prisma.emergencia.findMany({
       where: { estado: EstadoEmergencia.ACTIVA },
       orderBy: { fechaInicio: 'desc' },
@@ -258,6 +273,7 @@ export class EmergenciesService {
   }
 
   async findPublicByCode(codigoPublico: string): Promise<PublicEmergencyResponseDto> {
+    await this.emergencyExpiration.sweepOverdue();
     const emergency = await this.prisma.emergencia.findUnique({
       where: { codigoPublico },
     });
@@ -278,15 +294,20 @@ export class EmergenciesService {
     emergency: { codigoPublico: string; estado: string; idUsuarioDispositivo: number },
     location: Awaited<ReturnType<EmergenciesService['findLatestLocation']>>,
   ): Promise<void> {
+    const annotated = location ? toLocationResponse(location) : null;
     this.locationRealtimeNotifier.notifyEmergencyPublicUpdated({
       codigoPublico: emergency.codigoPublico,
       estado: emergency.estado,
-      ubicacion: location
+      ubicacion: annotated
         ? {
-            latitud: Number(location.latitud),
-            longitud: Number(location.longitud),
-            altitud: location.altitud == null ? null : Number(location.altitud),
-            fechaHoraDispositivo: location.fechaHoraDispositivo.toISOString(),
+            latitud: annotated.latitud,
+            longitud: annotated.longitud,
+            altitud: annotated.altitud,
+            fechaHoraDispositivo: annotated.fechaHoraDispositivo,
+            fechaHoraServidor: annotated.fechaHoraServidor,
+            offlineSync: annotated.fueSincronizadaOffline,
+            isLive: annotated.isLive,
+            liveExpiresAt: annotated.liveExpiresAt,
           }
         : null,
       fechaUltimaUbicacion: location ? location.fechaHoraDispositivo.toISOString() : null,
@@ -298,7 +319,7 @@ export class EmergenciesService {
   private async findLatestLocation(idUsuarioDispositivo: number) {
     return this.prisma.ubicacion.findFirst({
       where: { idUsuarioDispositivo },
-      orderBy: { fechaHoraDispositivo: 'desc' },
+      orderBy: { fechaHoraServidor: 'desc' },
     });
   }
 
@@ -336,4 +357,9 @@ export class EmergenciesService {
 
     return [...new Set([...contactIds, ...groupMembers.map((row) => row.idUsuario)])];
   }
+}
+
+function isActiveEmergencyConflict(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  return (error as { code?: string }).code === 'P2002';
 }

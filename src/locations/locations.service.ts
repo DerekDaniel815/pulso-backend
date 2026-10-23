@@ -1,14 +1,21 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { VisibilidadPreferida } from '../common/enums.js';
-import type { Prisma } from '../generated/prisma/client.js';
+import {
+  EMERGENCY_SWEEP,
+  type EmergencySweep,
+} from '../emergencies/emergency-sweep.token.js';
+import type { Prisma, Ubicacion } from '../generated/prisma/client.js';
 import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { assertDeviceTimestampNotInFuture, liveCutoff } from './location-freshness.js';
 import type { CreateLocationDto } from './dto/create-location.dto.js';
 import type { LocationInput } from './dto/location-input.dto.js';
 import type { LocationHistoryQueryDto } from './dto/location-history-query.dto.js';
@@ -27,6 +34,9 @@ export class LocationsService {
     private readonly prisma: PrismaService,
     private readonly locationAccessService: LocationAccessService,
     private readonly locationRealtimeNotifier: LocationRealtimeNotifier,
+    @Optional()
+    @Inject(EMERGENCY_SWEEP)
+    private readonly emergencyExpiration?: EmergencySweep,
   ) {}
 
   async create(idUsuario: number, dto: CreateLocationDto): Promise<LocationResponseDto> {
@@ -63,6 +73,8 @@ export class LocationsService {
     input: LocationInput,
     tx?: Prisma.TransactionClient,
   ): Promise<LocationResponseDto> {
+    assertDeviceTimestampNotInFuture(input.fechaHoraDispositivo);
+
     if (tx) {
       // TODO(fase-2): EmergenciesService.createForDevice llama este método dentro de
       // una transacción (SOS). No emitir location.updated aquí para evitar publicar
@@ -81,10 +93,7 @@ export class LocationsService {
   }
 
   async publishLatestForAssignment(idUsuarioDispositivo: number): Promise<void> {
-    const location = await this.prisma.ubicacion.findFirst({
-      where: { idUsuarioDispositivo },
-      orderBy: { fechaHoraDispositivo: 'desc' },
-    });
+    const location = await this.findLastKnownRow(idUsuarioDispositivo);
 
     if (!location) {
       return;
@@ -93,7 +102,57 @@ export class LocationsService {
     await this.emitLocationUpdated(idUsuarioDispositivo, toLocationResponse(location));
   }
 
+  /**
+   * Tras cerrar un SOS: republica solo si queda una ubicación normal en vivo.
+   * Si ya venció, retira el marcador una vez y no lo vuelve a pintar.
+   */
+  async publishAfterEmergencyEnded(idUsuarioDispositivo: number): Promise<void> {
+    const assignment = await this.prisma.usuarioDispositivo.findUnique({
+      where: { idUsuarioDispositivo },
+      include: { dispositivo: true },
+    });
+
+    const live = assignment?.ubicacionActiva
+      ? await this.findLiveRow(idUsuarioDispositivo)
+      : null;
+
+    if (live) {
+      await this.emitLocationUpdated(idUsuarioDispositivo, toLocationResponse(live));
+      return;
+    }
+
+    const viewers = await this.locationAccessService.getAuthorizedPrivateViewerUserIds(
+      idUsuarioDispositivo,
+    );
+    for (const viewerId of new Set(viewers)) {
+      this.locationRealtimeNotifier.notifyPrivateLocationRemoved(viewerId, idUsuarioDispositivo);
+    }
+
+    if (assignment?.visibilidadPreferida === VisibilidadPreferida.PUBLICO) {
+      this.locationRealtimeNotifier.notifyLocationPublicRemoved(`VIS-${idUsuarioDispositivo}`);
+    }
+  }
+
+  private async findLiveRow(idUsuarioDispositivo: number): Promise<Ubicacion | null> {
+    return this.prisma.ubicacion.findFirst({
+      where: {
+        idUsuarioDispositivo,
+        fueSincronizadaOffline: false,
+        fechaHoraServidor: { gte: liveCutoff() },
+      },
+      orderBy: { fechaHoraServidor: 'desc' },
+    });
+  }
+
+  private async findLastKnownRow(idUsuarioDispositivo: number): Promise<Ubicacion | null> {
+    return this.prisma.ubicacion.findFirst({
+      where: { idUsuarioDispositivo },
+      orderBy: { fechaHoraServidor: 'desc' },
+    });
+  }
+
   async findVisibleForUser(viewerId: number): Promise<VisibleLocationResponseDto[]> {
+    await this.emergencyExpiration?.sweepOverdue();
     const assignments = await this.locationAccessService.findVisibleAssignments(viewerId);
     const results: VisibleLocationResponseDto[] = [];
 
@@ -115,10 +174,9 @@ export class LocationsService {
         continue;
       }
 
-      const location = await this.prisma.ubicacion.findFirst({
-        where: { idUsuarioDispositivo: assignment.idUsuarioDispositivo },
-        orderBy: { fechaHoraDispositivo: 'desc' },
-      });
+      const location = emergenciaActiva
+        ? await this.findLastKnownRow(assignment.idUsuarioDispositivo)
+        : await this.findLiveRow(assignment.idUsuarioDispositivo);
 
       if (!location) {
         continue;
@@ -142,6 +200,7 @@ export class LocationsService {
   }
 
   async findPublicMarkers(): Promise<PublicLocationMarkerDto[]> {
+    await this.emergencyExpiration?.sweepOverdue();
     const publicAssignments = await this.prisma.usuarioDispositivo.findMany({
       where: {
         estado: true,
@@ -163,26 +222,28 @@ export class LocationsService {
         continue;
       }
 
-      const location = await this.prisma.ubicacion.findFirst({
-        where: { idUsuarioDispositivo: assignment.idUsuarioDispositivo },
-        orderBy: { fechaHoraDispositivo: 'desc' },
-      });
+      const location = await this.findLiveRow(assignment.idUsuarioDispositivo);
 
       if (!location) {
         continue;
       }
 
+      const annotated = toLocationResponse(location);
       markers.push({
         clavePublica: audience.clavePublica,
         origen: 'PUBLICO',
         codigoPublico: null,
         ubicacion: {
-          latitud: Number(location.latitud),
-          longitud: Number(location.longitud),
-          altitud: location.altitud == null ? null : Number(location.altitud),
-          fechaHoraDispositivo: location.fechaHoraDispositivo.toISOString(),
+          latitud: annotated.latitud,
+          longitud: annotated.longitud,
+          altitud: annotated.altitud,
+          fechaHoraDispositivo: annotated.fechaHoraDispositivo,
+          fechaHoraServidor: annotated.fechaHoraServidor,
+          offlineSync: annotated.fueSincronizadaOffline,
+          isLive: annotated.isLive,
+          liveExpiresAt: annotated.liveExpiresAt,
         },
-        fechaUltimaUbicacion: location.fechaHoraDispositivo.toISOString(),
+        fechaUltimaUbicacion: annotated.fechaHoraDispositivo,
       });
     }
 
@@ -209,6 +270,21 @@ export class LocationsService {
         this.locationAccessService.hasActiveEmergency(idUsuarioDispositivo),
       ]);
 
+      if (!location.isLive && !emergenciaActiva) {
+        return;
+      }
+
+      const publicPoint = {
+        latitud: location.latitud,
+        longitud: location.longitud,
+        altitud: location.altitud,
+        fechaHoraDispositivo: location.fechaHoraDispositivo,
+        fechaHoraServidor: location.fechaHoraServidor,
+        offlineSync: location.fueSincronizadaOffline,
+        isLive: location.isLive,
+        liveExpiresAt: location.liveExpiresAt,
+      };
+
       this.locationRealtimeNotifier.notifyLocationSaved(
         {
           location,
@@ -226,12 +302,7 @@ export class LocationsService {
               clavePublica: publicAudience.clavePublica,
               origen: publicAudience.origen ?? 'PUBLICO',
               codigoPublico: publicAudience.codigoPublico,
-              ubicacion: {
-                latitud: location.latitud,
-                longitud: location.longitud,
-                altitud: location.altitud,
-                fechaHoraDispositivo: location.fechaHoraDispositivo,
-              },
+              ubicacion: publicPoint,
             }
           : undefined,
       );
@@ -278,7 +349,7 @@ export class LocationsService {
           estado: true,
         },
       },
-      orderBy: { fechaHoraDispositivo: 'desc' },
+      orderBy: { fechaHoraServidor: 'desc' },
     });
 
     if (!location) {
@@ -296,7 +367,7 @@ export class LocationsService {
 
     const location = await this.prisma.ubicacion.findFirst({
       where: { idUsuarioDispositivo },
-      orderBy: { fechaHoraDispositivo: 'desc' },
+      orderBy: { fechaHoraServidor: 'desc' },
     });
 
     if (!location) {
@@ -332,7 +403,7 @@ export class LocationsService {
       take: 500,
     });
 
-    return rows.map(toLocationResponse);
+    return rows.map((row) => toLocationResponse(row));
   }
 
   private async assertCanView(viewerId: number, idUsuarioDispositivo: number) {
