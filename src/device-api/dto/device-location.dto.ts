@@ -66,4 +66,14 @@ export class DeviceLocationResponseDto {
     description: 'Momento en que el backend recibió y almacenó la coordenada (fecha_hora_servidor).',
   })
   receivedAt: string;
+
+  @ApiProperty({
+    description: 'Estado efectivo de ubicacionActiva. El firmware anterior ignora este campo.',
+  })
+  trackingEnabled: boolean;
+
+  @ApiProperty({
+    description: 'true si la asignación tiene una emergencia ACTIVA. El firmware anterior ignora este campo.',
+  })
+  emergencyActive: boolean;
 }

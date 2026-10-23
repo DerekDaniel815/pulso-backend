@@ -34,10 +34,16 @@ export class DeviceApiService {
       device.idDispositivo,
       this.toLocationInput(dto),
     );
+    const [, emergencyActive] = await Promise.all([
+      this.devicesService.touchConnection(device.idDispositivo),
+      this.locationAccessService.hasActiveEmergency(device.idUsuarioDispositivo),
+    ]);
 
     return {
       ok: true,
       receivedAt: saved.fechaHoraServidor,
+      trackingEnabled: device.ubicacionActiva,
+      emergencyActive,
     };
   }
 

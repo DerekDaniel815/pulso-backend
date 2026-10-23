@@ -88,7 +88,7 @@ describe('SimulationService', () => {
     deviceApiService = new DeviceApiService(
       { createForAssignment } as never,
       { createForDevice: reportEmergency } as never,
-      {} as never,
+      { touchConnection: vi.fn().mockResolvedValue(new Date('2026-09-09T23:45:22.000Z')) } as never,
       { hasActiveEmergency: vi.fn().mockResolvedValue(false) } as never,
     );
 
