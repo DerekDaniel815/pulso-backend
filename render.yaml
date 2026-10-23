@@ -29,3 +29,11 @@ services:
         value: "30"
       - key: EMERGENCY_EXPIRE_INTERVAL_MS
         value: "60000"
+      - key: MQTT_BROKER_URL
+        sync: false
+      - key: MQTT_BACKEND_USERNAME
+        sync: false
+      - key: MQTT_BACKEND_PASSWORD
+        sync: false
+      - key: MQTT_WEBHOOK_SECRET
+        sync: false

@@ -81,11 +81,14 @@ model Dispositivo {
   numeroSerie       String?   @unique @map("numero_serie") @db.VarChar(100)
   estado            String    @default("FABRICADO") @db.VarChar(30)
   tokenHash         String?   @unique @map("token_hash") @db.VarChar(64)
+  /// Hash de la clave MQTT. No es el deviceToken y no se imprime.
+  mqttPasswordHash  String?   @unique @map("mqtt_password_hash") @db.VarChar(64)
   ultimaConexion    DateTime? @map("ultima_conexion") @db.Timestamptz(6)
   fechaFabricacion  DateTime? @map("fecha_fabricacion") @db.Timestamptz(6)
   fechaRegistro     DateTime  @default(now()) @map("fecha_registro") @db.Timestamptz(6)
 
   asignaciones UsuarioDispositivo[]
+  mqttSecuencias MqttSecuencia[]
 
   @@map("dispositivo")
 }
@@ -99,6 +102,8 @@ model UsuarioDispositivo {
   idDispositivo        Int       @map("id_dispositivo")
   alias                String?   @db.VarChar(100)
   ubicacionActiva      Boolean   @default(false) @map("ubicacion_activa")
+  /// Revisión monotónica de las órdenes MQTT. El dispositivo ignora una revisión menor o igual.
+  mqttControlRevision  Int       @default(0) @map("mqtt_control_revision")
   /// Coordenadas con fechaHoraServidor anterior no vuelven a ser marcador en vivo.
   ubicacionVisibleDesde DateTime? @map("ubicacion_visible_desde") @db.Timestamptz(6)
   visibilidadPreferida String    @default("SOLO_YO") @map("visibilidad_preferida") @db.VarChar(20)
@@ -306,6 +311,18 @@ model NotificacionUsuario {
   @@unique([idNotificacion, idUsuario], map: "uq_notificacion_usuario")
   @@index([idUsuario, leida], map: "ix_notificacion_usuario_usuario")
   @@map("notificacion_usuario")
+}
+
+/// Idempotencia de un PUBLISH QoS 1. La secuencia pertenece al dispositivo, no al deviceToken.
+model MqttSecuencia {
+  idDispositivo Int      @map("id_dispositivo")
+  secuencia     BigInt
+  recibidoEn    DateTime @default(now()) @map("recibido_en") @db.Timestamptz(6)
+
+  dispositivo Dispositivo @relation(fields: [idDispositivo], references: [idDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_mqtt_secuencia_dispositivo")
+
+  @@id([idDispositivo, secuencia])
+  @@map("mqtt_secuencia")
 }
 
 /// Token de Expo Push por celular. Un usuario puede tener varios.
