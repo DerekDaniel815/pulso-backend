@@ -1,7 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
 import type { LocationResponseDto } from './dto/location-response.dto.js';
 
-export const DEFAULT_LOCATION_LIVE_TTL_SECONDS = 90;
+/**
+ * Intervalo normal del firmware: `kLocationIntervalMs` = 10000 en
+ * pulso-gps/include/Config.h. El siguiente POST se programa al terminar el
+ * anterior, así que el hueco observado en servidor incluye esa espera más el
+ * HTTP. TTL = (10 s × 2) + 5 s = 25 s. No aplica a una emergencia ACTIVA.
+ */
+export const DEFAULT_LOCATION_LIVE_TTL_SECONDS = 25;
 export const DEFAULT_EMERGENCY_MAX_ACTIVE_DAYS = 30;
 export const MAX_FUTURE_DEVICE_TIMESTAMP_MS = 2 * 60 * 1000;
 

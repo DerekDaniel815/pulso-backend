@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { applyLiveMetadata, assertDeviceTimestampNotInFuture } from './location-freshness.js';
+import {
+  applyLiveMetadata,
+  assertDeviceTimestampNotInFuture,
+  locationLiveTtlSeconds,
+} from './location-freshness.js';
 import type { LocationResponseDto } from './dto/location-response.dto.js';
 
 function point(overrides: Partial<LocationResponseDto>): LocationResponseDto {
@@ -21,6 +25,14 @@ function point(overrides: Partial<LocationResponseDto>): LocationResponseDto {
 }
 
 describe('frescura de ubicación normal', () => {
+  it('el TTL predeterminado es 25 segundos', () => {
+    const previous = process.env.LOCATION_LIVE_TTL_SECONDS;
+    delete process.env.LOCATION_LIVE_TTL_SECONDS;
+    expect(locationLiveTtlSeconds()).toBe(25);
+    if (previous == null) delete process.env.LOCATION_LIVE_TTL_SECONDS;
+    else process.env.LOCATION_LIVE_TTL_SECONDS = previous;
+  });
+
   const now = new Date('2026-10-22T20:01:00.000Z');
 
   it('un punto online dentro de 90 s está en vivo', () => {
