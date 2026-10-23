@@ -1,12 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import {
   FinalizadaDesde,
   MotivoFinalizacionEmergencia,
 } from '../common/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LocationRealtimeNotifier } from '../locations-realtime/location-realtime-notifier.service.js';
-import { LocationsService } from '../locations/locations.service.js';
 import { emergencyExpiryCutoff } from '../locations/location-freshness.js';
+import { LocationsService } from '../locations/locations.service.js';
 import {
   toEmergencyResponse,
   type EmergencyResponseDto,
@@ -18,7 +19,7 @@ export class EmergencyExpirationService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly locationsService: LocationsService,
+    private readonly moduleRef: ModuleRef,
     private readonly locationRealtimeNotifier: LocationRealtimeNotifier,
   ) {}
 
@@ -84,7 +85,8 @@ export class EmergencyExpirationService {
 
     this.locationRealtimeNotifier.notifyEmergencyPublicEnded(updated.codigoPublico);
     try {
-      await this.locationsService.publishAfterEmergencyEnded(updated.idUsuarioDispositivo);
+      const locationsService = this.moduleRef.get(LocationsService, { strict: false });
+      await locationsService.publishAfterEmergencyEnded(updated.idUsuarioDispositivo);
     } catch (error) {
       this.logger.error(
         `No se pudo recalcular la visibilidad tras finalizar ${updated.codigoPublico}`,

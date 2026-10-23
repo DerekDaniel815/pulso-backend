@@ -15,7 +15,7 @@ describe('EmergencyExpirationService', () => {
         emergencia: { updateMany, findUnique, findMany },
         ubicacion: { findFirst },
       } as never,
-      { publishAfterEmergencyEnded } as never,
+      { get: () => ({ publishAfterEmergencyEnded }) } as never,
       { notifyEmergencyPublicEnded } as never,
     );
     return { service, updateMany, findUnique, findMany, publishAfterEmergencyEnded, notifyEmergencyPublicEnded };
