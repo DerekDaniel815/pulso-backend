@@ -29,19 +29,21 @@ export class DeviceApiService {
   ): Promise<DeviceLocationResponseDto> {
     await this.assertPeriodicTrackingAllowed(device);
 
-    const saved = await this.locationsService.createForAssignment(
+    const stored = await this.locationsService.storeDeviceLocation(
       device.idUsuarioDispositivo,
       device.idDispositivo,
       this.toLocationInput(dto),
     );
-    const [, emergencyActive] = await Promise.all([
-      this.devicesService.touchConnection(device.idDispositivo),
+    const [emergencyActive] = await Promise.all([
       this.locationAccessService.hasActiveEmergency(device.idUsuarioDispositivo),
+      stored.created
+        ? this.devicesService.touchConnection(device.idDispositivo)
+        : Promise.resolve(null),
     ]);
 
     return {
       ok: true,
-      receivedAt: saved.fechaHoraServidor,
+      receivedAt: stored.location.fechaHoraServidor,
       trackingEnabled: device.ubicacionActiva,
       emergencyActive,
     };
@@ -124,6 +126,7 @@ export class DeviceApiService {
       velocidad: dto.speed,
       fechaHoraDispositivo: dto.deviceTimestamp,
       fueSincronizadaOffline: dto.offlineSync ?? false,
+      clientLocationId: dto.clientLocationId,
     };
   }
 }

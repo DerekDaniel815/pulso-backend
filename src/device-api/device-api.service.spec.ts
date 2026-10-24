@@ -13,24 +13,25 @@ const assignedDevice: AuthenticatedDevice = {
 };
 
 describe('DeviceApiService reportLocation', () => {
-  let createForAssignment: ReturnType<typeof vi.fn>;
+  let storeDeviceLocation: ReturnType<typeof vi.fn>;
   let touchConnection: ReturnType<typeof vi.fn>;
   let service: DeviceApiService;
 
   beforeEach(() => {
-    createForAssignment = vi.fn().mockResolvedValue({
-      fechaHoraServidor: '2026-09-10T06:00:01.000Z',
+    storeDeviceLocation = vi.fn().mockResolvedValue({
+      location: { fechaHoraServidor: '2026-09-10T06:00:01.000Z' },
+      created: true,
     });
     touchConnection = vi.fn().mockResolvedValue(new Date('2026-09-10T06:00:02.000Z'));
     service = new DeviceApiService(
-      { createForAssignment } as never,
+      { storeDeviceLocation } as never,
       {} as never,
       { touchConnection } as never,
       { hasActiveEmergency: vi.fn().mockResolvedValue(false) } as never,
     );
   });
 
-  it('persiste vía LocationsService.createForAssignment (mismo punto que el simulador)', async () => {
+  it('persiste vía LocationsService.storeDeviceLocation (mismo punto que el simulador)', async () => {
     await service.reportLocation(assignedDevice, {
       latitude: 37.421998,
       longitude: -122.084,
@@ -38,9 +39,9 @@ describe('DeviceApiService reportLocation', () => {
       deviceTimestamp: '2026-09-10T06:00:00.000Z',
     });
 
-    expect(createForAssignment).toHaveBeenCalledOnce();
+    expect(storeDeviceLocation).toHaveBeenCalledOnce();
     expect(touchConnection).toHaveBeenCalledWith(5);
-    expect(createForAssignment).toHaveBeenCalledWith(
+    expect(storeDeviceLocation).toHaveBeenCalledWith(
       1,
       5,
       expect.objectContaining({
@@ -51,10 +52,32 @@ describe('DeviceApiService reportLocation', () => {
     );
   });
 
+  it('repite clientLocationId sin tocar la conexión ni crear otra fila', async () => {
+    storeDeviceLocation.mockResolvedValue({
+      location: { fechaHoraServidor: '2026-09-10T05:00:00.000Z' },
+      created: false,
+    });
+
+    await expect(
+      service.reportLocation(assignedDevice, {
+        latitude: 37.421998,
+        longitude: -122.084,
+        deviceTimestamp: '2026-09-10T06:00:00.000Z',
+        clientLocationId: 'b0000000100000001',
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      receivedAt: '2026-09-10T05:00:00.000Z',
+      trackingEnabled: true,
+      emergencyActive: false,
+    });
+    expect(touchConnection).not.toHaveBeenCalled();
+  });
+
   it('con ubicacionActiva=false no guarda la ubicación e informa tracking y emergencia', async () => {
     const hasActiveEmergency = vi.fn().mockResolvedValue(true);
     service = new DeviceApiService(
-      { createForAssignment } as never,
+      { storeDeviceLocation } as never,
       {} as never,
       {} as never,
       { hasActiveEmergency } as never,
@@ -74,14 +97,14 @@ describe('DeviceApiService reportLocation', () => {
         emergencyActive: true,
       },
     });
-    expect(createForAssignment).not.toHaveBeenCalled();
+    expect(storeDeviceLocation).not.toHaveBeenCalled();
     expect(touchConnection).not.toHaveBeenCalled();
   });
 
   it('una ubicación aceptada actualiza la conexión y devuelve el estado de seguimiento', async () => {
     const hasActiveEmergency = vi.fn().mockResolvedValue(false);
     service = new DeviceApiService(
-      { createForAssignment } as never,
+      { storeDeviceLocation } as never,
       {} as never,
       { touchConnection } as never,
       { hasActiveEmergency } as never,

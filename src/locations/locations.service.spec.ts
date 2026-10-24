@@ -27,7 +27,7 @@ describe('LocationsService realtime', () => {
   let prisma: {
     $transaction: ReturnType<typeof vi.fn>;
     usuarioDispositivo: { findUnique: ReturnType<typeof vi.fn> };
-    ubicacion: { create: ReturnType<typeof vi.fn> };
+    ubicacion: { create: ReturnType<typeof vi.fn>; findFirst: ReturnType<typeof vi.fn> };
     dispositivo: { update: ReturnType<typeof vi.fn> };
   };
   let notifier: { notifyLocationSaved: ReturnType<typeof vi.fn> };
@@ -37,7 +37,7 @@ describe('LocationsService realtime', () => {
     prisma = {
       $transaction: vi.fn(),
       usuarioDispositivo: { findUnique: vi.fn() },
-      ubicacion: { create: vi.fn() },
+      ubicacion: { create: vi.fn(), findFirst: vi.fn() },
       dispositivo: { update: vi.fn() },
     };
     notifier = { notifyLocationSaved: vi.fn() };
@@ -113,6 +113,41 @@ describe('LocationsService realtime', () => {
 
     expect(notifier.notifyLocationSaved).not.toHaveBeenCalled();
     expect(tx.ubicacion.create).toHaveBeenCalledOnce();
+  });
+
+  it('no emite ni inserta cuando clientLocationId ya existe en la asignación', async () => {
+    prisma.ubicacion.findFirst = vi.fn().mockResolvedValue(savedRow);
+
+    const stored = await service.storeDeviceLocation(1, 5, {
+      latitud: 37.421998,
+      longitud: -122.084,
+      fechaHoraDispositivo: '2026-09-10T06:00:00.000Z',
+      clientLocationId: 'b0000000100000001',
+    });
+
+    expect(stored.created).toBe(false);
+    expect(stored.location.fechaHoraServidor).toBe('2026-09-10T06:00:01.000Z');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(notifier.notifyLocationSaved).not.toHaveBeenCalled();
+  });
+
+  it('una colisión única devuelve la primera fila sin emitir location.updated', async () => {
+    prisma.ubicacion.findFirst = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(savedRow);
+    prisma.$transaction.mockRejectedValue({ code: 'P2002' });
+
+    const stored = await service.storeDeviceLocation(1, 5, {
+      latitud: 1,
+      longitud: 2,
+      fechaHoraDispositivo: '2026-09-10T06:00:00.000Z',
+      clientLocationId: 'b0000000100000002',
+    });
+
+    expect(stored.created).toBe(false);
+    expect(stored.location.fechaHoraServidor).toBe('2026-09-10T06:00:01.000Z');
+    expect(notifier.notifyLocationSaved).not.toHaveBeenCalled();
   });
 
   it('rechaza deviceTimestamp más de dos minutos en el futuro', async () => {

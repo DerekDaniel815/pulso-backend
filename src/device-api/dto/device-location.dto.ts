@@ -5,6 +5,8 @@ import {
   IsDateString,
   IsNumber,
   IsOptional,
+  IsString,
+  Matches,
   Max,
   Min,
 } from 'class-validator';
@@ -55,6 +57,16 @@ export class DeviceLocationDto {
   @IsOptional()
   @IsBoolean()
   offlineSync?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'b0000000100000001',
+    description:
+      'Identificador del dispositivo para esta coordenada. Se repite en los reintentos y cambia al crear otra. Las solicitudes antiguas pueden omitirlo.',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9]{8,40}$/)
+  clientLocationId?: string;
 }
 
 export class DeviceLocationResponseDto {

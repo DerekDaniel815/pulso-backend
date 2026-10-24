@@ -73,8 +73,11 @@ describe('SimulationService', () => {
     };
 
     createForAssignment = vi.fn().mockResolvedValue({
-      idUbicacion: 1,
-      fechaHoraServidor: '2026-09-09T23:45:21.000Z',
+      location: {
+        idUbicacion: 1,
+        fechaHoraServidor: '2026-09-09T23:45:21.000Z',
+      },
+      created: true,
     });
 
     reportEmergency = vi.fn().mockResolvedValue({
@@ -86,7 +89,7 @@ describe('SimulationService', () => {
     ensureSession = vi.fn().mockResolvedValue(mockSession);
 
     deviceApiService = new DeviceApiService(
-      { createForAssignment } as never,
+      { storeDeviceLocation: createForAssignment } as never,
       { createForDevice: reportEmergency } as never,
       { touchConnection: vi.fn().mockResolvedValue(new Date('2026-09-09T23:45:22.000Z')) } as never,
       { hasActiveEmergency: vi.fn().mockResolvedValue(false) } as never,

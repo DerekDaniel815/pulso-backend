@@ -217,9 +217,12 @@ model Ubicacion {
   fechaHoraDispositivo   DateTime @map("fecha_hora_dispositivo") @db.Timestamptz(6)
   fechaHoraServidor      DateTime @default(now()) @map("fecha_hora_servidor") @db.Timestamptz(6)
   fueSincronizadaOffline Boolean  @default(false) @map("fue_sincronizada_offline")
+  /// Identificador del dispositivo para reintentar la misma coordenada. Nulo en filas antiguas.
+  clientLocationId       String?  @map("client_location_id") @db.VarChar(40)
 
   usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_ubicacion_usuario_dispositivo")
 
+  @@unique([idUsuarioDispositivo, clientLocationId], map: "uq_ubicacion_asignacion_client_id")
   @@index([idUsuarioDispositivo, fechaHoraDispositivo(sort: Desc)], map: "ix_ubicacion_asignacion_fecha")
   @@index([idUsuarioDispositivo, fechaHoraServidor(sort: Desc)], map: "ix_ubicacion_asignacion_servidor")
   @@map("ubicacion")

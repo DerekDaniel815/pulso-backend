@@ -40,7 +40,7 @@ export class DeviceApiController {
   @ApiOperation({
     summary: 'Enviar ubicación GNSS desde el hardware',
     description:
-      'El dispositivo se identifica con Bearer token. El backend resuelve la asignación activa y actualiza ultima_conexion.',
+      'El dispositivo se identifica con Bearer token. El backend resuelve la asignación activa y actualiza ultima_conexion. clientLocationId es opcional: si se repite en la misma asignación, la respuesta confirma la primera fila sin insertar otra ni emitir location.updated.',
   })
   @ApiCreatedResponse({ type: DeviceLocationResponseDto })
   @ApiBadRequestResponse({ description: 'Datos de ubicación inválidos' })

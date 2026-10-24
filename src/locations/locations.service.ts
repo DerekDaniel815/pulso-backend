@@ -26,6 +26,10 @@ import type {
 } from './dto/visible-location.dto.js';
 import { LocationAccessService } from './location-access.service.js';
 
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+}
+
 @Injectable()
 export class LocationsService {
   private readonly logger = new Logger(LocationsService.name);
@@ -100,6 +104,38 @@ export class LocationsService {
     const location = toLocationResponse(created);
     await this.emitLocationUpdated(idUsuarioDispositivo, location);
     return location;
+  }
+
+  async storeDeviceLocation(
+    idUsuarioDispositivo: number,
+    idDispositivo: number,
+    input: LocationInput,
+  ): Promise<{ location: LocationResponseDto; created: boolean }> {
+    if (input.clientLocationId) {
+      const existing = await this.findClientLocation(idUsuarioDispositivo, input.clientLocationId);
+      if (existing) {
+        return { location: toLocationResponse(existing), created: false };
+      }
+    }
+
+    try {
+      const location = await this.createForAssignment(idUsuarioDispositivo, idDispositivo, input);
+      return { location, created: true };
+    } catch (error) {
+      if (input.clientLocationId && isUniqueViolation(error)) {
+        const existing = await this.findClientLocation(idUsuarioDispositivo, input.clientLocationId);
+        if (existing) {
+          return { location: toLocationResponse(existing), created: false };
+        }
+      }
+      throw error;
+    }
+  }
+
+  private findClientLocation(idUsuarioDispositivo: number, clientLocationId: string) {
+    return this.prisma.ubicacion.findFirst({
+      where: { idUsuarioDispositivo, clientLocationId },
+    });
   }
 
   async publishLatestForAssignment(idUsuarioDispositivo: number): Promise<void> {
@@ -366,6 +402,7 @@ export class LocationsService {
         velocidad: input.velocidad,
         fechaHoraDispositivo: new Date(input.fechaHoraDispositivo),
         fueSincronizadaOffline: input.fueSincronizadaOffline ?? false,
+        clientLocationId: input.clientLocationId,
       },
     });
 

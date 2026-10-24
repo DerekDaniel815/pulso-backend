@@ -6,4 +6,5 @@ export type LocationInput = {
   velocidad?: number;
   fechaHoraDispositivo: string;
   fueSincronizadaOffline?: boolean;
+  clientLocationId?: string;
 };
