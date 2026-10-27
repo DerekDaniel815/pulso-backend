@@ -190,6 +190,22 @@ export class EmergenciesService {
     return toEmergencyResponse(emergency, latestLocation);
   }
 
+  async finishForDevice(idUsuarioDispositivo: number): Promise<void> {
+    const active = await this.prisma.emergencia.findFirst({
+      where: {
+        idUsuarioDispositivo,
+        estado: EstadoEmergencia.ACTIVA,
+      },
+    });
+    if (!active) {
+      return;
+    }
+    await this.emergencyExpiration.finalizeIfActive(active.idEmergencia, {
+      motivoFinalizacion: MotivoFinalizacionEmergencia.MANUAL_DEVICE,
+      finalizadaDesde: FinalizadaDesde.DISPOSITIVO,
+    });
+  }
+
   async finish(idUsuario: number, idEmergencia: bigint): Promise<EmergencyResponseDto> {
     const emergency = await this.prisma.emergencia.findUnique({
       where: { idEmergencia },

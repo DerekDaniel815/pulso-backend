@@ -7,9 +7,11 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOperation,
+  ApiProperty,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { IsBoolean } from 'class-validator';
 import { Public } from '../common/decorators/public.decorator.js';
 import { CurrentDevice } from '../common/decorators/current-device.decorator.js';
 import type { AuthenticatedDevice } from '../common/types/authenticated-device.js';
@@ -27,6 +29,12 @@ import {
   DeviceLocationResponseDto,
 } from './dto/device-location.dto.js';
 import { DeviceAuthGuard } from './guards/device-auth.guard.js';
+
+class DeviceTrackingDto {
+  @ApiProperty({ example: true })
+  @IsBoolean()
+  enabled: boolean;
+}
 
 @ApiTags('Device API')
 @ApiBearerAuth('device-token')
@@ -73,6 +81,24 @@ export class DeviceApiController {
     @Body() dto: DeviceEmergencyDto,
   ): Promise<DeviceEmergencyResponseDto> {
     return this.deviceApiService.reportEmergency(device, dto);
+  }
+
+  @Post('emergencies/finish')
+  @ApiOperation({
+    summary: 'Finalizar la emergencia activa desde el hardware',
+    description: 'Usa el mismo cierre que la app, marcado como finalizado desde el dispositivo.',
+  })
+  finishEmergency(@CurrentDevice() device: AuthenticatedDevice) {
+    return this.deviceApiService.finishEmergency(device);
+  }
+
+  @Post('tracking')
+  @ApiOperation({
+    summary: 'Encender o apagar el seguimiento desde el hardware',
+    description: 'Cambia ubicacionActiva con la misma lógica que el interruptor de la app.',
+  })
+  setTracking(@CurrentDevice() device: AuthenticatedDevice, @Body() dto: DeviceTrackingDto) {
+    return this.deviceApiService.setTracking(device, dto.enabled);
   }
 
   @Post('heartbeat')

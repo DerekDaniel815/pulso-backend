@@ -28,6 +28,7 @@ describe('DeviceApiService reportLocation', () => {
       {} as never,
       { touchConnection } as never,
       { hasActiveEmergency: vi.fn().mockResolvedValue(false) } as never,
+      {} as never,
     );
   });
 
@@ -81,6 +82,7 @@ describe('DeviceApiService reportLocation', () => {
       {} as never,
       {} as never,
       { hasActiveEmergency } as never,
+      {} as never,
     );
 
     await expect(
@@ -108,6 +110,7 @@ describe('DeviceApiService reportLocation', () => {
       {} as never,
       { touchConnection } as never,
       { hasActiveEmergency } as never,
+      {} as never,
     );
 
     await expect(
@@ -126,6 +129,46 @@ describe('DeviceApiService reportLocation', () => {
   });
 });
 
+describe('DeviceApiService ordenes del monitor', () => {
+  it('encender o apagar seguimiento usa el mismo update de la app', async () => {
+    const update = vi.fn().mockResolvedValue({ ubicacionActiva: false });
+    const hasActiveEmergency = vi.fn().mockResolvedValue(false);
+    const service = new DeviceApiService(
+      {} as never,
+      {} as never,
+      {} as never,
+      { hasActiveEmergency } as never,
+      { update } as never,
+    );
+
+    await expect(service.setTracking(assignedDevice, false)).resolves.toEqual({
+      ok: true,
+      trackingEnabled: false,
+      emergencyActive: false,
+    });
+    expect(update).toHaveBeenCalledWith(1, 1, { ubicacionActiva: false });
+  });
+
+  it('apagar SOS finaliza la emergencia del dispositivo y conserva el seguimiento', async () => {
+    const finishForDevice = vi.fn().mockResolvedValue(undefined);
+    const hasActiveEmergency = vi.fn().mockResolvedValue(false);
+    const service = new DeviceApiService(
+      {} as never,
+      { finishForDevice } as never,
+      {} as never,
+      { hasActiveEmergency } as never,
+      {} as never,
+    );
+
+    await expect(service.finishEmergency(assignedDevice)).resolves.toEqual({
+      ok: true,
+      trackingEnabled: true,
+      emergencyActive: false,
+    });
+    expect(finishForDevice).toHaveBeenCalledWith(1);
+  });
+});
+
 describe('DeviceApiService heartbeat', () => {
   it('devuelve trackingEnabled y emergencyActive sin aceptar una ubicación', async () => {
     const touchConnection = vi.fn().mockResolvedValue(new Date('2026-10-23T05:00:00.000Z'));
@@ -135,6 +178,7 @@ describe('DeviceApiService heartbeat', () => {
       {} as never,
       { touchConnection } as never,
       { hasActiveEmergency } as never,
+      {} as never,
     );
 
     await expect(service.heartbeat({ ...assignedDevice, ubicacionActiva: false })).resolves.toEqual({

@@ -93,6 +93,7 @@ describe('SimulationService', () => {
       { createForDevice: reportEmergency } as never,
       { touchConnection: vi.fn().mockResolvedValue(new Date('2026-09-09T23:45:22.000Z')) } as never,
       { hasActiveEmergency: vi.fn().mockResolvedValue(false) } as never,
+      {} as never,
     );
 
     simulationSessionService = {

@@ -60,4 +60,10 @@ export class DeviceEmergencyResponseDto {
 
   @ApiProperty({ example: '2026-09-09T23:47:13.000Z' })
   receivedAt: string;
+
+  @ApiPropertyOptional()
+  trackingEnabled?: boolean;
+
+  @ApiPropertyOptional()
+  emergencyActive?: boolean;
 }

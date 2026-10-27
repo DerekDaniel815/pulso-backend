@@ -6,6 +6,7 @@ import { EmergenciesService } from '../emergencies/emergencies.service.js';
 import type { LocationInput } from '../locations/dto/location-input.dto.js';
 import { LocationsService } from '../locations/locations.service.js';
 import { LocationAccessService } from '../locations/location-access.service.js';
+import { UserDevicesService } from '../user-devices/user-devices.service.js';
 import type { DeviceEmergencyDto } from './dto/device-emergency.dto.js';
 import type {
   DeviceEmergencyResponseDto,
@@ -21,6 +22,7 @@ export class DeviceApiService {
     private readonly emergenciesService: EmergenciesService,
     private readonly devicesService: DevicesService,
     private readonly locationAccessService: LocationAccessService,
+    private readonly userDevicesService: UserDevicesService,
   ) {}
 
   async reportLocation(
@@ -75,7 +77,26 @@ export class DeviceApiService {
       codigoPublico: emergency.codigoPublico,
       estado: emergency.estado,
       receivedAt: emergency.fechaInicio,
+      trackingEnabled: device.ubicacionActiva,
+      emergencyActive: true,
     };
+  }
+
+  async setTracking(device: AuthenticatedDevice, enabled: boolean) {
+    const updated = await this.userDevicesService.update(device.idUsuario, device.idUsuarioDispositivo, {
+      ubicacionActiva: enabled,
+    });
+    return this.modeSnapshot(device.idUsuarioDispositivo, updated.ubicacionActiva);
+  }
+
+  async finishEmergency(device: AuthenticatedDevice) {
+    await this.emergenciesService.finishForDevice(device.idUsuarioDispositivo);
+    return this.modeSnapshot(device.idUsuarioDispositivo, device.ubicacionActiva);
+  }
+
+  private async modeSnapshot(idUsuarioDispositivo: number, trackingEnabled: boolean) {
+    const emergencyActive = await this.locationAccessService.hasActiveEmergency(idUsuarioDispositivo);
+    return { ok: true, trackingEnabled, emergencyActive };
   }
 
   async heartbeat(device: AuthenticatedDevice): Promise<DeviceHeartbeatResponseDto> {
