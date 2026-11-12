@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type { LocationSource } from '../location-source.js';
 import { LocationResponseDto } from './location-response.dto.js';
 
 export class VisibleLocationAssignmentDto {
@@ -42,6 +43,15 @@ export class PublicLocationPointDto {
   @ApiPropertyOptional()
   altitud: number | null;
 
+  @ApiPropertyOptional()
+  precisionGps: number | null;
+
+  @ApiProperty({ enum: ['GNSS', 'CELL'] })
+  locationSource: LocationSource;
+
+  @ApiProperty()
+  isApproximate: boolean;
+
   @ApiProperty()
   fechaHoraDispositivo: string;
 
@@ -73,4 +83,20 @@ export class PublicLocationMarkerDto {
 
   @ApiProperty()
   fechaUltimaUbicacion: string;
+}
+
+export function toPublicLocationPoint(location: LocationResponseDto): PublicLocationPointDto {
+  return {
+    latitud: location.latitud,
+    longitud: location.longitud,
+    altitud: location.altitud,
+    precisionGps: location.precisionGps,
+    locationSource: location.locationSource,
+    isApproximate: location.isApproximate,
+    fechaHoraDispositivo: location.fechaHoraDispositivo,
+    fechaHoraServidor: location.fechaHoraServidor,
+    offlineSync: location.fueSincronizadaOffline,
+    isLive: location.isLive,
+    liveExpiresAt: location.liveExpiresAt,
+  };
 }

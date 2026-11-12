@@ -20,6 +20,7 @@ import type { CreateLocationDto } from './dto/create-location.dto.js';
 import type { LocationInput } from './dto/location-input.dto.js';
 import type { LocationHistoryQueryDto } from './dto/location-history-query.dto.js';
 import { toLocationResponse, type LocationResponseDto } from './dto/location-response.dto.js';
+import { toPublicLocationPoint } from './dto/visible-location.dto.js';
 import type {
   PublicLocationMarkerDto,
   VisibleLocationResponseDto,
@@ -85,7 +86,10 @@ export class LocationsService {
         select: { ubicacionActiva: true },
       });
       if (assignment?.ubicacionActiva === false) {
-        throw new ForbiddenException('El seguimiento de ubicación está desactivado');
+        const emergencyActive = await this.locationAccessService.hasActiveEmergency(idUsuarioDispositivo);
+        if (!emergencyActive) {
+          throw new ForbiddenException('El seguimiento de ubicación está desactivado');
+        }
       }
     }
 
@@ -293,16 +297,7 @@ export class LocationsService {
         clavePublica: audience.clavePublica,
         origen: 'PUBLICO',
         codigoPublico: null,
-        ubicacion: {
-          latitud: annotated.latitud,
-          longitud: annotated.longitud,
-          altitud: annotated.altitud,
-          fechaHoraDispositivo: annotated.fechaHoraDispositivo,
-          fechaHoraServidor: annotated.fechaHoraServidor,
-          offlineSync: annotated.fueSincronizadaOffline,
-          isLive: annotated.isLive,
-          liveExpiresAt: annotated.liveExpiresAt,
-        },
+        ubicacion: toPublicLocationPoint(annotated),
         fechaUltimaUbicacion: annotated.fechaHoraDispositivo,
       });
     }
@@ -346,16 +341,7 @@ export class LocationsService {
         return;
       }
 
-      const publicPoint = {
-        latitud: location.latitud,
-        longitud: location.longitud,
-        altitud: location.altitud,
-        fechaHoraDispositivo: location.fechaHoraDispositivo,
-        fechaHoraServidor: location.fechaHoraServidor,
-        offlineSync: location.fueSincronizadaOffline,
-        isLive: location.isLive,
-        liveExpiresAt: location.liveExpiresAt,
-      };
+      const publicPoint = toPublicLocationPoint(location);
 
       this.locationRealtimeNotifier.notifyLocationSaved(
         {
@@ -403,6 +389,7 @@ export class LocationsService {
         fechaHoraDispositivo: new Date(input.fechaHoraDispositivo),
         fueSincronizadaOffline: input.fueSincronizadaOffline ?? false,
         clientLocationId: input.clientLocationId,
+        fuente: input.fuente ?? 'GNSS',
       },
     });
 

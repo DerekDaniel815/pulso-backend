@@ -1,3 +1,5 @@
+import type { LocationSource } from '../location-source.js';
+
 export type LocationInput = {
   latitud: number;
   longitud: number;
@@ -7,4 +9,5 @@ export type LocationInput = {
   fechaHoraDispositivo: string;
   fueSincronizadaOffline?: boolean;
   clientLocationId?: string;
+  fuente?: LocationSource;
 };

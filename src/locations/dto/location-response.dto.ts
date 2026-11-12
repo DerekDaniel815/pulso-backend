@@ -2,6 +2,11 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { Ubicacion } from '../../generated/prisma/client.js';
 import { toIdString, toIso, toNumber } from '../../common/utils/serialize.js';
 import { applyLiveMetadata } from '../location-freshness.js';
+import {
+  isApproximateSource,
+  normalizeLocationSource,
+  type LocationSource,
+} from '../location-source.js';
 
 export class LocationResponseDto {
   @ApiProperty()
@@ -34,6 +39,12 @@ export class LocationResponseDto {
   @ApiProperty()
   fueSincronizadaOffline: boolean;
 
+  @ApiProperty({ enum: ['GNSS', 'CELL'] })
+  locationSource: LocationSource;
+
+  @ApiProperty({ description: 'true cuando locationSource es CELL.' })
+  isApproximate: boolean;
+
   @ApiProperty({ description: 'true si offlineSync es false y fechaHoraServidor está dentro del TTL.' })
   isLive: boolean;
 
@@ -54,6 +65,8 @@ export function toLocationResponse(row: Ubicacion, now = new Date()): LocationRe
       fechaHoraDispositivo: toIso(row.fechaHoraDispositivo) as string,
       fechaHoraServidor: toIso(row.fechaHoraServidor) as string,
       fueSincronizadaOffline: row.fueSincronizadaOffline,
+      locationSource: normalizeLocationSource(row.fuente),
+      isApproximate: isApproximateSource(normalizeLocationSource(row.fuente)),
       isLive: false,
       liveExpiresAt: null,
     },

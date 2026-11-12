@@ -5,6 +5,11 @@ import {
   toLocationResponse,
 } from '../../locations/dto/location-response.dto.js';
 import { toIdString, toIso, toNumber } from '../../common/utils/serialize.js';
+import {
+  isApproximateSource,
+  normalizeLocationSource,
+  type LocationSource,
+} from '../../locations/location-source.js';
 
 export class PublicLocationDto {
   @ApiProperty()
@@ -15,6 +20,15 @@ export class PublicLocationDto {
 
   @ApiPropertyOptional()
   altitud: number | null;
+
+  @ApiPropertyOptional()
+  precisionGps: number | null;
+
+  @ApiProperty({ enum: ['GNSS', 'CELL'] })
+  locationSource: LocationSource;
+
+  @ApiProperty()
+  isApproximate: boolean;
 
   @ApiProperty()
   fechaHoraDispositivo: string;
@@ -76,10 +90,14 @@ export class EmergencyResponseDto {
 }
 
 function toPublicLocation(location: Ubicacion): PublicLocationDto {
+  const locationSource = normalizeLocationSource(location.fuente);
   return {
     latitud: toNumber(location.latitud) as number,
     longitud: toNumber(location.longitud) as number,
     altitud: toNumber(location.altitud),
+    precisionGps: toNumber(location.precisionGps),
+    locationSource,
+    isApproximate: isApproximateSource(locationSource),
     fechaHoraDispositivo: toIso(location.fechaHoraDispositivo) as string,
   };
 }

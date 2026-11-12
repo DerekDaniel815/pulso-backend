@@ -219,6 +219,8 @@ model Ubicacion {
   fueSincronizadaOffline Boolean  @default(false) @map("fue_sincronizada_offline")
   /// Identificador del dispositivo para reintentar la misma coordenada. Nulo en filas antiguas.
   clientLocationId       String?  @map("client_location_id") @db.VarChar(40)
+  /// GNSS o CELL. Las filas anteriores quedan en GNSS.
+  fuente                 String   @default("GNSS") @db.VarChar(8)
 
   usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_ubicacion_usuario_dispositivo")
 

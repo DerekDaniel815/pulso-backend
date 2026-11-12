@@ -14,6 +14,7 @@ const savedRow = {
   fechaHoraDispositivo: new Date('2026-09-10T06:00:00.000Z'),
   fechaHoraServidor: new Date('2026-09-10T06:00:01.000Z'),
   fueSincronizadaOffline: false,
+  fuente: 'GNSS',
 };
 
 const assignment = {
@@ -148,6 +149,68 @@ describe('LocationsService realtime', () => {
     expect(stored.created).toBe(false);
     expect(stored.location.fechaHoraServidor).toBe('2026-09-10T06:00:01.000Z');
     expect(notifier.notifyLocationSaved).not.toHaveBeenCalled();
+  });
+
+  it('persiste CELL y lo anuncia como aproximado sin duplicar la precisión', async () => {
+    const hasActiveEmergency = vi.fn().mockResolvedValue(true);
+    const cellNotifier = { notifyLocationSaved: vi.fn() };
+    const cellService = new LocationsService(
+      prisma as unknown as PrismaService,
+      {
+        getAuthorizedPrivateViewerUserIds: vi.fn().mockResolvedValue([1]),
+        getPublicAudience: vi.fn().mockResolvedValue({ isPublic: true, clavePublica: 'VIS-1', origen: 'EMERGENCIA', codigoPublico: 'SOS-1' }),
+        hasActiveEmergency,
+      } as never,
+      cellNotifier as unknown as LocationRealtimeNotifier,
+    );
+    prisma.usuarioDispositivo.findUnique
+      .mockResolvedValueOnce({ ubicacionActiva: false })
+      .mockResolvedValueOnce({ ...assignment, ubicacionActiva: false, visibilidadPreferida: 'PUBLICO', ubicacionVisibleDesde: null });
+    prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => Promise<unknown>) => {
+      prisma.ubicacion.create.mockResolvedValue({
+        ...savedRow,
+        precisionGps: 550,
+        fuente: 'CELL',
+        latitud: -12,
+        longitud: -77,
+      });
+      prisma.dispositivo.update.mockResolvedValue({});
+      return callback(prisma);
+    });
+
+    await cellService.createForAssignment(1, 5, {
+      latitud: -12,
+      longitud: -77,
+      precisionGps: 550,
+      fechaHoraDispositivo: '2026-09-10T06:00:00.000Z',
+      fuente: 'CELL',
+      clientLocationId: 'b0000000100000009',
+    });
+
+    expect(hasActiveEmergency).toHaveBeenCalled();
+    expect(prisma.ubicacion.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ fuente: 'CELL', precisionGps: 550, clientLocationId: 'b0000000100000009' }),
+      }),
+    );
+    expect(cellNotifier.notifyLocationSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        location: expect.objectContaining({
+          locationSource: 'CELL',
+          isApproximate: true,
+          precisionGps: 550,
+        }),
+        emergenciaActiva: true,
+      }),
+      [1],
+      expect.objectContaining({
+        ubicacion: expect.objectContaining({
+          locationSource: 'CELL',
+          isApproximate: true,
+          precisionGps: 550,
+        }),
+      }),
+    );
   });
 
   it('rechaza deviceTimestamp más de dos minutos en el futuro', async () => {
@@ -406,6 +469,8 @@ describe('LocationsService mapa en vivo', () => {
     hasActiveEmergency.mockResolvedValue(true);
     prisma.ubicacion.findFirst.mockResolvedValue({
       ...locationRow,
+      fuente: 'CELL',
+      precisionGps: 550,
       fechaHoraServidor: new Date(Date.now() - 120_000),
     });
 
@@ -413,6 +478,9 @@ describe('LocationsService mapa en vivo', () => {
     expect(visible).toHaveLength(1);
     expect(visible[0]?.emergenciaActiva).toBe(true);
     expect(visible[0]?.location.isLive).toBe(false);
+    expect(visible[0]?.location.locationSource).toBe('CELL');
+    expect(visible[0]?.location.isApproximate).toBe(true);
+    expect(visible[0]?.location.precisionGps).toBe(550);
   });
 
   it('una reactivación no devuelve la coordenada anterior al corte', async () => {

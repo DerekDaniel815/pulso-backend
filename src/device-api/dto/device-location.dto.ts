@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -10,6 +11,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { LOCATION_SOURCES, type LocationSource } from '../../locations/location-source.js';
 
 export class DeviceLocationDto {
   @ApiProperty({ example: -12.046374, minimum: -90, maximum: 90 })
@@ -46,9 +48,17 @@ export class DeviceLocationDto {
   @Min(0)
   speed?: number;
 
+  @ApiPropertyOptional({
+    enum: LOCATION_SOURCES,
+    description: 'GNSS es la fuente principal. CELL es un respaldo aproximado. Si se omite, se asume GNSS.',
+  })
+  @IsOptional()
+  @IsIn(LOCATION_SOURCES)
+  locationSource?: LocationSource;
+
   @ApiProperty({
     example: '2026-09-09T18:45:20-05:00',
-    description: 'Fecha/hora en que el dispositivo obtuvo la coordenada (GNSS).',
+    description: 'Fecha/hora en que el dispositivo obtuvo la coordenada.',
   })
   @IsDateString()
   deviceTimestamp: string;

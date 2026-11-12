@@ -315,16 +315,19 @@ export class EmergenciesService {
       codigoPublico: emergency.codigoPublico,
       estado: emergency.estado,
       ubicacion: annotated
-        ? {
-            latitud: annotated.latitud,
-            longitud: annotated.longitud,
-            altitud: annotated.altitud,
-            fechaHoraDispositivo: annotated.fechaHoraDispositivo,
-            fechaHoraServidor: annotated.fechaHoraServidor,
-            offlineSync: annotated.fueSincronizadaOffline,
-            isLive: annotated.isLive,
-            liveExpiresAt: annotated.liveExpiresAt,
-          }
+          ? {
+              latitud: annotated.latitud,
+              longitud: annotated.longitud,
+              altitud: annotated.altitud,
+              precisionGps: annotated.precisionGps,
+              locationSource: annotated.locationSource,
+              isApproximate: annotated.isApproximate,
+              fechaHoraDispositivo: annotated.fechaHoraDispositivo,
+              fechaHoraServidor: annotated.fechaHoraServidor,
+              offlineSync: annotated.fueSincronizadaOffline,
+              isLive: annotated.isLive,
+              liveExpiresAt: annotated.liveExpiresAt,
+            }
         : null,
       fechaUltimaUbicacion: location ? location.fechaHoraDispositivo.toISOString() : null,
     });

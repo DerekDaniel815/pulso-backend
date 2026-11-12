@@ -1,9 +1,10 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { EstadoDispositivo } from '../common/enums.js';
 import type { AuthenticatedDevice } from '../common/types/authenticated-device.js';
 import { DevicesService } from '../devices/devices.service.js';
 import { EmergenciesService } from '../emergencies/emergencies.service.js';
 import type { LocationInput } from '../locations/dto/location-input.dto.js';
+import { normalizeLocationSource } from '../locations/location-source.js';
 import { LocationsService } from '../locations/locations.service.js';
 import { LocationAccessService } from '../locations/location-access.service.js';
 import { UserDevicesService } from '../user-devices/user-devices.service.js';
@@ -130,15 +131,21 @@ export class DeviceApiService {
       const emergencyActive = await this.locationAccessService.hasActiveEmergency(
         device.idUsuarioDispositivo,
       );
-      throw new ForbiddenException({
-        message: 'Seguimiento desactivado',
-        trackingEnabled: false,
-        emergencyActive,
-      });
+      if (!emergencyActive) {
+        throw new ForbiddenException({
+          message: 'Seguimiento desactivado',
+          trackingEnabled: false,
+          emergencyActive,
+        });
+      }
     }
   }
 
   private toLocationInput(dto: DeviceLocationDto): LocationInput {
+    const fuente = normalizeLocationSource(dto.locationSource);
+    if (fuente === 'CELL' && (dto.accuracy == null || dto.accuracy <= 0)) {
+      throw new BadRequestException('Una ubicación celular requiere precisión positiva');
+    }
     return {
       latitud: dto.latitude,
       longitud: dto.longitude,
@@ -148,6 +155,7 @@ export class DeviceApiService {
       fechaHoraDispositivo: dto.deviceTimestamp,
       fueSincronizadaOffline: dto.offlineSync ?? false,
       clientLocationId: dto.clientLocationId,
+      fuente,
     };
   }
 }

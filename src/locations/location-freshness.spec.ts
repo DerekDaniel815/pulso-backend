@@ -18,6 +18,8 @@ function point(overrides: Partial<LocationResponseDto>): LocationResponseDto {
     fechaHoraDispositivo: '2026-10-22T20:00:00.000Z',
     fechaHoraServidor: '2026-10-22T20:00:01.000Z',
     fueSincronizadaOffline: false,
+    locationSource: 'GNSS',
+    isApproximate: false,
     isLive: false,
     liveExpiresAt: null,
     ...overrides,

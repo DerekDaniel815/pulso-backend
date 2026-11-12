@@ -49,6 +49,7 @@ describe('DeviceApiService reportLocation', () => {
         latitud: 37.421998,
         longitud: -122.084,
         fechaHoraDispositivo: '2026-09-10T06:00:00.000Z',
+        fuente: 'GNSS',
       }),
     );
   });
@@ -75,12 +76,12 @@ describe('DeviceApiService reportLocation', () => {
     expect(touchConnection).not.toHaveBeenCalled();
   });
 
-  it('con ubicacionActiva=false no guarda la ubicación e informa tracking y emergencia', async () => {
-    const hasActiveEmergency = vi.fn().mockResolvedValue(true);
+  it('con ubicacionActiva=false y sin emergencia no guarda la ubicación', async () => {
+    const hasActiveEmergency = vi.fn().mockResolvedValue(false);
     service = new DeviceApiService(
       { storeDeviceLocation } as never,
       {} as never,
-      {} as never,
+      { touchConnection } as never,
       { hasActiveEmergency } as never,
       {} as never,
     );
@@ -96,11 +97,55 @@ describe('DeviceApiService reportLocation', () => {
       response: {
         message: 'Seguimiento desactivado',
         trackingEnabled: false,
-        emergencyActive: true,
+        emergencyActive: false,
       },
     });
     expect(storeDeviceLocation).not.toHaveBeenCalled();
     expect(touchConnection).not.toHaveBeenCalled();
+  });
+
+  it('durante una emergencia activa guarda CELL aunque el seguimiento periódico esté apagado', async () => {
+    const hasActiveEmergency = vi.fn().mockResolvedValue(true);
+    service = new DeviceApiService(
+      { storeDeviceLocation } as never,
+      {} as never,
+      { touchConnection } as never,
+      { hasActiveEmergency } as never,
+      {} as never,
+    );
+
+    await service.reportLocation({ ...assignedDevice, ubicacionActiva: false }, {
+      latitude: -12.0,
+      longitude: -77.0,
+      accuracy: 550,
+      locationSource: 'CELL',
+      deviceTimestamp: '2026-09-10T06:00:00.000Z',
+      offlineSync: false,
+      clientLocationId: 'b0000000100000009',
+    });
+
+    expect(storeDeviceLocation).toHaveBeenCalledWith(
+      1,
+      5,
+      expect.objectContaining({
+        precisionGps: 550,
+        fuente: 'CELL',
+        clientLocationId: 'b0000000100000009',
+        fueSincronizadaOffline: false,
+      }),
+    );
+  });
+
+  it('rechaza CELL sin precisión positiva', async () => {
+    await expect(
+      service.reportLocation(assignedDevice, {
+        latitude: -12.0,
+        longitude: -77.0,
+        locationSource: 'CELL',
+        deviceTimestamp: '2026-09-10T06:00:00.000Z',
+      }),
+    ).rejects.toThrow(/precisión positiva/);
+    expect(storeDeviceLocation).not.toHaveBeenCalled();
   });
 
   it('una ubicación aceptada actualiza la conexión y devuelve el estado de seguimiento', async () => {
