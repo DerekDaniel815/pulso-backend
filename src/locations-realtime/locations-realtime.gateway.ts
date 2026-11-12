@@ -17,6 +17,7 @@ import type {
   LocationPublicRemovedPayload,
   LocationPublicUpdatedPayload,
   LocationUpdatedPayload,
+  DeviceModeUpdatedPayload,
 } from './location-updated.payload.js';
 
 type JwtPayload = {
@@ -95,6 +96,10 @@ export class LocationsRealtimeGateway implements OnGatewayConnection, OnGatewayD
 
   emitLocationPrivateRemoved(userId: number, payload: LocationPrivateRemovedPayload): void {
     this.server.to(`user:${userId}`).emit('location.private.removed', payload);
+  }
+
+  emitDeviceModeUpdated(userId: number, payload: DeviceModeUpdatedPayload): void {
+    this.server.to(`user:${userId}`).emit('device.mode.updated', payload);
   }
 
   emitNotificationCreated(userId: number, payload: { notification: unknown }): void {

@@ -38,6 +38,7 @@ describe('UserDevicesService.update visibilidad pública', () => {
   let notifyIfPublicAudienceLost: ReturnType<typeof vi.fn>;
   let notifyPrivateLocationRemoved: ReturnType<typeof vi.fn>;
   let notifyLocationPublicRemoved: ReturnType<typeof vi.fn>;
+  let notifyDeviceModeUpdated: ReturnType<typeof vi.fn>;
   let notifyLostViewers: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -53,6 +54,7 @@ describe('UserDevicesService.update visibilidad pública', () => {
     notifyIfPublicAudienceLost = vi.fn();
     notifyPrivateLocationRemoved = vi.fn();
     notifyLocationPublicRemoved = vi.fn();
+    notifyDeviceModeUpdated = vi.fn();
     notifyLostViewers = vi.fn(async (_ownerIds: number[], change: () => Promise<unknown>) => change());
 
     service = new UserDevicesService(
@@ -67,6 +69,7 @@ describe('UserDevicesService.update visibilidad pública', () => {
         notifyIfPublicAudienceLost,
         notifyPrivateLocationRemoved,
         notifyLocationPublicRemoved,
+        notifyDeviceModeUpdated,
       } as unknown as LocationRealtimeNotifier,
       { notifyLostViewers } as never,
     );
@@ -182,6 +185,48 @@ describe('UserDevicesService.update visibilidad pública', () => {
 
     expect(notifyPrivateLocationRemoved).not.toHaveBeenCalled();
     expect(notifyLocationPublicRemoved).not.toHaveBeenCalled();
+    expect(notifyDeviceModeUpdated).toHaveBeenCalledWith(1, expect.objectContaining({
+      idUsuarioDispositivo: 10,
+      trackingEnabled: false,
+      emergencyActive: true,
+    }));
+  });
+
+  it('el botón físico OFF a ON avisa al propietario sin publicar una ubicación', async () => {
+    prisma.usuarioDispositivo.findUnique.mockResolvedValue({
+      ...assignment,
+      ubicacionActiva: false,
+    });
+    getPublicAudience.mockResolvedValue({ isPublic: false, clavePublica: null, origen: null });
+    prisma.usuarioDispositivo.update.mockResolvedValue({
+      ...assignment,
+      ubicacionActiva: true,
+    });
+
+    await service.update(1, 10, { ubicacionActiva: true });
+
+    expect(notifyDeviceModeUpdated).toHaveBeenCalledTimes(1);
+    expect(notifyDeviceModeUpdated).toHaveBeenCalledWith(1, expect.objectContaining({
+      idUsuarioDispositivo: 10,
+      trackingEnabled: true,
+      emergencyActive: false,
+    }));
+  });
+
+  it('el botón físico ON a OFF avisa al propietario', async () => {
+    getPublicAudience.mockResolvedValue({ isPublic: false, clavePublica: null, origen: null });
+    prisma.usuarioDispositivo.update.mockResolvedValue({
+      ...assignment,
+      ubicacionActiva: false,
+    });
+
+    await service.update(1, 10, { ubicacionActiva: false });
+
+    expect(notifyDeviceModeUpdated).toHaveBeenCalledWith(1, expect.objectContaining({
+      idUsuarioDispositivo: 10,
+      trackingEnabled: false,
+      emergencyActive: false,
+    }));
   });
 
   it('tracking ON no republica la última ubicación ni emite removed', async () => {

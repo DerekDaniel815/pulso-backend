@@ -6,6 +6,7 @@ import { EmergenciesService } from './emergencies.service.js';
 describe('EmergenciesService.createForDevice', () => {
   let service: EmergenciesService;
   let emergenciaCreate: ReturnType<typeof vi.fn>;
+  let notifyDeviceModeUpdated: ReturnType<typeof vi.fn>;
   let prisma: {
     usuarioDispositivo: { findUnique: ReturnType<typeof vi.fn> };
     emergencia: {
@@ -31,6 +32,7 @@ describe('EmergenciesService.createForDevice', () => {
           idUsuario: 1,
           idUsuarioDispositivo: 10,
           estado: true,
+          ubicacionActiva: true,
         }),
       },
       emergencia: {
@@ -45,12 +47,13 @@ describe('EmergenciesService.createForDevice', () => {
       ),
     };
 
+    notifyDeviceModeUpdated = vi.fn();
     service = new EmergenciesService(
       prisma as never,
       { createForUsers: vi.fn() } as never,
       { canViewAssignmentLocation: vi.fn() } as never,
       { createForAssignment: vi.fn(), publishLatestForAssignment: vi.fn() } as never,
-      { notifyEmergencyPublicUpdated: vi.fn(), notifyEmergencyPublicEnded: vi.fn() } as never,
+      { notifyEmergencyPublicUpdated: vi.fn(), notifyEmergencyPublicEnded: vi.fn(), notifyDeviceModeUpdated } as never,
       { sweepOverdue: vi.fn(), finalizeIfActive: vi.fn() } as never,
     );
 
@@ -87,6 +90,30 @@ describe('EmergenciesService.createForDevice', () => {
     emergenciaCreate.mockRejectedValue({ code: 'P2002' });
 
     await expect(service.createForDevice(1, 10, 5, 'SOS')).rejects.toBeInstanceOf(ConflictException);
+    expect(notifyDeviceModeUpdated).not.toHaveBeenCalled();
+  });
+
+  it('el botón SOS avisa al propietario con la emergencia activa', async () => {
+    await service.createForDevice(1, 10, 5, 'SOS');
+
+    expect(notifyDeviceModeUpdated).toHaveBeenCalledWith(1, expect.objectContaining({
+      idUsuarioDispositivo: 10,
+      trackingEnabled: true,
+      emergencyActive: true,
+      fechaCambio: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    }));
+  });
+
+  it('cerrar SOS desde el dispositivo avisa que la emergencia terminó', async () => {
+    prisma.emergencia.findFirst.mockResolvedValue({ idEmergencia: 4n });
+
+    await service.finishForDevice(10);
+
+    expect(notifyDeviceModeUpdated).toHaveBeenCalledWith(1, expect.objectContaining({
+      idUsuarioDispositivo: 10,
+      trackingEnabled: true,
+      emergencyActive: false,
+    }));
   });
 });
 
@@ -118,7 +145,7 @@ describe('EmergenciesService.finish', () => {
       { createForUsers: vi.fn() } as never,
       {} as never,
       { publishLatestForAssignment: vi.fn() } as never,
-      { notifyEmergencyPublicEnded, notifyEmergencyPublicUpdated: vi.fn() } as never,
+      { notifyEmergencyPublicEnded, notifyEmergencyPublicUpdated: vi.fn(), notifyDeviceModeUpdated: vi.fn() } as never,
       { sweepOverdue: vi.fn(), finalizeIfActive } as never,
     );
     return { service, finalizeIfActive, notifyEmergencyPublicEnded, findUnique };

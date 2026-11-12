@@ -107,6 +107,7 @@ export class EmergenciesService {
 
     const location = await this.findLatestLocation(emergency.idUsuarioDispositivo);
     await this.publishEmergencyRealtime(emergency, location);
+    this.publishOwnerMode(idUsuario, assignment.idUsuarioDispositivo, assignment.ubicacionActiva, true);
     return toEmergencyResponse(emergency, location);
   }
 
@@ -187,6 +188,7 @@ export class EmergenciesService {
 
     const latestLocation = await this.findLatestLocation(emergency.idUsuarioDispositivo);
     await this.publishEmergencyRealtime(emergency, latestLocation);
+    this.publishOwnerMode(idUsuario, idUsuarioDispositivo, assignment.ubicacionActiva, true);
     return toEmergencyResponse(emergency, latestLocation);
   }
 
@@ -204,6 +206,12 @@ export class EmergenciesService {
       motivoFinalizacion: MotivoFinalizacionEmergencia.MANUAL_DEVICE,
       finalizadaDesde: FinalizadaDesde.DISPOSITIVO,
     });
+    const assignment = await this.prisma.usuarioDispositivo.findUnique({
+      where: { idUsuarioDispositivo },
+    });
+    if (assignment) {
+      this.publishOwnerMode(assignment.idUsuario, idUsuarioDispositivo, assignment.ubicacionActiva, false);
+    }
   }
 
   async finish(idUsuario: number, idEmergencia: bigint): Promise<EmergencyResponseDto> {
@@ -231,6 +239,12 @@ export class EmergenciesService {
     });
 
     if (finished) {
+      this.publishOwnerMode(
+        emergency.usuarioDispositivo.idUsuario,
+        emergency.idUsuarioDispositivo,
+        emergency.usuarioDispositivo.ubicacionActiva === true,
+        false,
+      );
       return finished;
     }
 
@@ -304,6 +318,20 @@ export class EmergenciesService {
 
   private generatePublicCode() {
     return `EME-${randomBytes(4).toString('hex').toUpperCase()}`;
+  }
+
+  private publishOwnerMode(
+    idUsuario: number,
+    idUsuarioDispositivo: number,
+    trackingEnabled: boolean,
+    emergencyActive: boolean,
+  ): void {
+    this.locationRealtimeNotifier.notifyDeviceModeUpdated(idUsuario, {
+      idUsuarioDispositivo,
+      trackingEnabled,
+      emergencyActive,
+      fechaCambio: new Date().toISOString(),
+    });
   }
 
   private async publishEmergencyRealtime(

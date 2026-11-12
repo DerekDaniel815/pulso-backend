@@ -155,6 +155,19 @@ export class UserDevicesService {
     const nextAudience = await this.locationAccessService.getPublicAudience(updated);
     this.locationRealtimeNotifier.notifyIfPublicAudienceLost(previousAudience, nextAudience);
 
+    if (
+      dto.ubicacionActiva != null &&
+      dto.ubicacionActiva !== current.ubicacionActiva
+    ) {
+      const emergencyNow = await this.locationAccessService.hasActiveEmergency(idUsuarioDispositivo);
+      this.locationRealtimeNotifier.notifyDeviceModeUpdated(current.idUsuario, {
+        idUsuarioDispositivo,
+        trackingEnabled: updated.ubicacionActiva,
+        emergencyActive: emergencyNow,
+        fechaCambio: new Date().toISOString(),
+      });
+    }
+
     if (turningTrackingOff && !emergencyActive) {
       for (const viewerId of new Set(privateViewers)) {
         this.locationRealtimeNotifier.notifyPrivateLocationRemoved(

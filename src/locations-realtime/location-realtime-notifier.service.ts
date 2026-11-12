@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { LocationRemovalReason } from '../common/enums.js';
 import { LocationsRealtimeGateway } from './locations-realtime.gateway.js';
 import type {
+  DeviceModeUpdatedPayload,
   EmergencyPublicUpdatedPayload,
   LocationPublicUpdatedPayload,
   LocationUpdatedPayload,
@@ -50,6 +51,13 @@ export class LocationRealtimeNotifier {
   notifyLocationPublicRemoved(clavePublica: string): void {
     this.logger.log(`[WS LOCATION PUBLIC] removed ${clavePublica}`);
     this.gateway.emitLocationPublicRemoved({ clavePublica });
+  }
+
+  notifyDeviceModeUpdated(userId: number, payload: DeviceModeUpdatedPayload): void {
+    this.logger.log(
+      `[WS DEVICE MODE] userId=${userId} assignment=${payload.idUsuarioDispositivo} tracking=${payload.trackingEnabled} emergency=${payload.emergencyActive}`,
+    );
+    this.gateway.emitDeviceModeUpdated(userId, payload);
   }
 
   notifyPrivateLocationRemoved(

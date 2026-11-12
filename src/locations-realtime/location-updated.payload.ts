@@ -38,3 +38,11 @@ export type LocationPrivateRemovedPayload = {
   reason: LocationRemovalReason;
 };
 
+/** Estado de seguimiento y emergencia originado por el dispositivo o por la app. */
+export type DeviceModeUpdatedPayload = {
+  idUsuarioDispositivo: number;
+  trackingEnabled: boolean;
+  emergencyActive: boolean;
+  fechaCambio: string;
+};
+
