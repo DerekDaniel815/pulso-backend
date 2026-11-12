@@ -4,6 +4,7 @@ import type { AuthenticatedDevice } from '../common/types/authenticated-device.j
 import { DevicesService } from '../devices/devices.service.js';
 import { EmergenciesService } from '../emergencies/emergencies.service.js';
 import type { LocationInput } from '../locations/dto/location-input.dto.js';
+import { isCellCoordinateInServiceArea } from '../locations/cell-service-area.js';
 import { normalizeLocationSource } from '../locations/location-source.js';
 import { LocationsService } from '../locations/locations.service.js';
 import { LocationAccessService } from '../locations/location-access.service.js';
@@ -145,6 +146,9 @@ export class DeviceApiService {
     const fuente = normalizeLocationSource(dto.locationSource);
     if (fuente === 'CELL' && (dto.accuracy == null || dto.accuracy <= 0)) {
       throw new BadRequestException('Una ubicación celular requiere precisión positiva');
+    }
+    if (fuente === 'CELL' && !isCellCoordinateInServiceArea(dto.latitude, dto.longitude)) {
+      throw new BadRequestException('Una ubicación celular queda fuera del área de servicio configurada');
     }
     return {
       latitud: dto.latitude,

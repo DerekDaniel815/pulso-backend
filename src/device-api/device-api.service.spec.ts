@@ -148,6 +148,57 @@ describe('DeviceApiService reportLocation', () => {
     expect(storeDeviceLocation).not.toHaveBeenCalled();
   });
 
+  it('guarda CELL sintético sin intercambiar latitud y longitud', async () => {
+    await service.reportLocation(assignedDevice, {
+      latitude: -11.95,
+      longitude: -76.99,
+      accuracy: 550,
+      locationSource: 'CELL',
+      deviceTimestamp: '2026-09-10T06:00:00.000Z',
+    });
+
+    expect(storeDeviceLocation).toHaveBeenCalledWith(
+      1,
+      5,
+      expect.objectContaining({
+        latitud: -11.95,
+        longitud: -76.99,
+        precisionGps: 550,
+        fuente: 'CELL',
+      }),
+    );
+  });
+
+  it('rechaza CELL fuera del recuadro de servicio y conserva GNSS fuera de ese recuadro', async () => {
+    await expect(
+      service.reportLocation(assignedDevice, {
+        latitude: -76.99,
+        longitude: -11.95,
+        accuracy: 550,
+        locationSource: 'CELL',
+        deviceTimestamp: '2026-09-10T06:00:00.000Z',
+      }),
+    ).rejects.toThrow(/área de servicio/);
+    expect(storeDeviceLocation).not.toHaveBeenCalled();
+
+    await service.reportLocation(assignedDevice, {
+      latitude: 37.42,
+      longitude: -122.08,
+      accuracy: 5,
+      locationSource: 'GNSS',
+      deviceTimestamp: '2026-09-10T06:01:00.000Z',
+    });
+    expect(storeDeviceLocation).toHaveBeenCalledWith(
+      1,
+      5,
+      expect.objectContaining({
+        latitud: 37.42,
+        longitud: -122.08,
+        fuente: 'GNSS',
+      }),
+    );
+  });
+
   it('una ubicación aceptada actualiza la conexión y devuelve el estado de seguimiento', async () => {
     const hasActiveEmergency = vi.fn().mockResolvedValue(false);
     service = new DeviceApiService(
