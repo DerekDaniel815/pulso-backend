@@ -23,6 +23,7 @@ export type LocationPublicUpdatedPayload = {
 };
 
 export type EmergencyPublicUpdatedPayload = {
+  clavePublica: string;
   codigoPublico: string;
   estado: string;
   ubicacion: PublicLocationPointDto | null;

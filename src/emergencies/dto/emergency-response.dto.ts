@@ -4,12 +4,8 @@ import {
   LocationResponseDto,
   toLocationResponse,
 } from '../../locations/dto/location-response.dto.js';
-import { toIdString, toIso, toNumber } from '../../common/utils/serialize.js';
-import {
-  isApproximateSource,
-  normalizeLocationSource,
-  type LocationSource,
-} from '../../locations/location-source.js';
+import { toIdString, toIso } from '../../common/utils/serialize.js';
+import { type LocationSource } from '../../locations/location-source.js';
 
 export class PublicLocationDto {
   @ApiProperty()
@@ -32,9 +28,21 @@ export class PublicLocationDto {
 
   @ApiProperty()
   fechaHoraDispositivo: string;
+
+  @ApiProperty({ description: 'Fecha real de recepción. No se renueva al consultar.' })
+  fechaHoraServidor: string;
+
+  @ApiProperty({ description: 'true solo si la coordenada está dentro del TTL normal.' })
+  isLive: boolean;
+
+  @ApiPropertyOptional({ description: 'fechaHoraServidor + TTL. Null si el punto es offline.' })
+  liveExpiresAt: string | null;
 }
 
 export class PublicEmergencyResponseDto {
+  @ApiProperty({ description: 'Misma clave del marcador público. En una emergencia es el código público.' })
+  clavePublica: string;
+
   @ApiProperty()
   codigoPublico: string;
 
@@ -89,27 +97,32 @@ export class EmergencyResponseDto {
   fechaUltimaUbicacion: string | null;
 }
 
-function toPublicLocation(location: Ubicacion): PublicLocationDto {
-  const locationSource = normalizeLocationSource(location.fuente);
+function toPublicLocation(location: Ubicacion, now: Date): PublicLocationDto {
+  const annotated = toLocationResponse(location, now);
   return {
-    latitud: toNumber(location.latitud) as number,
-    longitud: toNumber(location.longitud) as number,
-    altitud: toNumber(location.altitud),
-    precisionGps: toNumber(location.precisionGps),
-    locationSource,
-    isApproximate: isApproximateSource(locationSource),
-    fechaHoraDispositivo: toIso(location.fechaHoraDispositivo) as string,
+    latitud: annotated.latitud,
+    longitud: annotated.longitud,
+    altitud: annotated.altitud,
+    precisionGps: annotated.precisionGps,
+    locationSource: annotated.locationSource,
+    isApproximate: annotated.isApproximate,
+    fechaHoraDispositivo: annotated.fechaHoraDispositivo,
+    fechaHoraServidor: annotated.fechaHoraServidor,
+    isLive: annotated.isLive,
+    liveExpiresAt: annotated.liveExpiresAt,
   };
 }
 
 export function toPublicEmergencyResponse(
   emergency: Emergencia,
   location: Ubicacion | null,
+  now = new Date(),
 ): PublicEmergencyResponseDto {
   return {
+    clavePublica: emergency.codigoPublico,
     codigoPublico: emergency.codigoPublico,
     estado: emergency.estado,
-    ubicacion: location ? toPublicLocation(location) : null,
+    ubicacion: location ? toPublicLocation(location, now) : null,
     fechaUltimaUbicacion: location ? (toIso(location.fechaHoraDispositivo) as string) : null,
   };
 }

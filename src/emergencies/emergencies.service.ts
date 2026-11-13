@@ -308,7 +308,7 @@ export class EmergenciesService {
       where: { codigoPublico },
     });
 
-    if (!emergency) {
+    if (!emergency || emergency.estado !== EstadoEmergencia.ACTIVA) {
       throw new NotFoundException('Emergencia no encontrada');
     }
 
@@ -340,6 +340,7 @@ export class EmergenciesService {
   ): Promise<void> {
     const annotated = location ? toLocationResponse(location) : null;
     this.locationRealtimeNotifier.notifyEmergencyPublicUpdated({
+      clavePublica: emergency.codigoPublico,
       codigoPublico: emergency.codigoPublico,
       estado: emergency.estado,
       ubicacion: annotated

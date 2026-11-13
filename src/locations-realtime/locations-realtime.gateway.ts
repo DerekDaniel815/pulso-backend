@@ -86,7 +86,11 @@ export class LocationsRealtimeGateway implements OnGatewayConnection, OnGatewayD
     this.server.to('public:locations').emit('emergency.public.updated', payload);
   }
 
-  emitEmergencyPublicEnded(payload: { codigoPublico: string; estado: string }): void {
+  emitEmergencyPublicEnded(payload: {
+    codigoPublico: string;
+    clavePublica: string;
+    estado: string;
+  }): void {
     this.server.to('public:locations').emit('emergency.public.ended', payload);
   }
 
