@@ -143,6 +143,9 @@ export class DeviceApiService {
   }
 
   private toLocationInput(dto: DeviceLocationDto): LocationInput {
+    if (dto.locationSource === 'NETWORK') {
+      throw new BadRequestException('La fuente NETWORK solo la produce el servidor');
+    }
     const fuente = normalizeLocationSource(dto.locationSource);
     if (fuente === 'CELL' && (dto.accuracy == null || dto.accuracy <= 0)) {
       throw new BadRequestException('Una ubicación celular requiere precisión positiva');

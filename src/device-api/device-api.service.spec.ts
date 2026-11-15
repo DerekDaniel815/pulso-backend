@@ -199,6 +199,19 @@ describe('DeviceApiService reportLocation', () => {
     );
   });
 
+  it('rechaza una coordenada que el dispositivo presenta como NETWORK', async () => {
+    await expect(
+      service.reportLocation(assignedDevice, {
+        latitude: -12.1,
+        longitude: -77.0,
+        accuracy: 800,
+        locationSource: 'NETWORK',
+        deviceTimestamp: '2026-09-10T06:00:00.000Z',
+      }),
+    ).rejects.toThrow(/NETWORK solo la produce el servidor/);
+    expect(storeDeviceLocation).not.toHaveBeenCalled();
+  });
+
   it('una ubicación aceptada actualiza la conexión y devuelve el estado de seguimiento', async () => {
     const hasActiveEmergency = vi.fn().mockResolvedValue(false);
     service = new DeviceApiService(

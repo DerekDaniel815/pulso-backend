@@ -29,6 +29,8 @@ import {
   DeviceLocationResponseDto,
 } from './dto/device-location.dto.js';
 import { DeviceAuthGuard } from './guards/device-auth.guard.js';
+import { DeviceNetworkCellDto, DeviceNetworkCellResponseDto } from './dto/device-network-cell.dto.js';
+import { NetworkLocationService } from '../locations/network-location.service.js';
 
 class DeviceTrackingDto {
   @ApiProperty({ example: true })
@@ -42,7 +44,10 @@ class DeviceTrackingDto {
 @UseGuards(DeviceAuthGuard)
 @Controller('device')
 export class DeviceApiController {
-  constructor(private readonly deviceApiService: DeviceApiService) {}
+  constructor(
+    private readonly deviceApiService: DeviceApiService,
+    private readonly networkLocationService: NetworkLocationService,
+  ) {}
 
   @Post('locations')
   @ApiOperation({
@@ -63,6 +68,22 @@ export class DeviceApiController {
     @Body() dto: DeviceLocationDto,
   ): Promise<DeviceLocationResponseDto> {
     return this.deviceApiService.reportLocation(device, dto);
+  }
+
+  @Post('network-cell')
+  @ApiOperation({
+    summary: 'Enviar la celda LTE para el respaldo Google',
+    description:
+      'No incluye coordenadas. El servidor consulta Google Geolocation solo si tiene clave y no hay una respuesta reciente de esta misma celda. La coordenada resultante se guarda como NETWORK.',
+  })
+  @ApiCreatedResponse({ type: DeviceNetworkCellResponseDto })
+  @ApiBadRequestResponse({ description: 'Celda LTE incompleta' })
+  @ApiUnauthorizedResponse({ description: 'Token de dispositivo ausente o inválido' })
+  reportNetworkCell(
+    @CurrentDevice() device: AuthenticatedDevice,
+    @Body() dto: DeviceNetworkCellDto,
+  ): Promise<DeviceNetworkCellResponseDto> {
+    return this.networkLocationService.report(device, dto);
   }
 
   @Post('emergencies')

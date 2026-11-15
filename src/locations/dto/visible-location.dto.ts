@@ -46,7 +46,7 @@ export class PublicLocationPointDto {
   @ApiPropertyOptional()
   precisionGps: number | null;
 
-  @ApiProperty({ enum: ['GNSS', 'CELL'] })
+  @ApiProperty({ enum: ['GNSS', 'CELL', 'NETWORK'] })
   locationSource: LocationSource;
 
   @ApiProperty()

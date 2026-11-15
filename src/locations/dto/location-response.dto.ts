@@ -39,10 +39,10 @@ export class LocationResponseDto {
   @ApiProperty()
   fueSincronizadaOffline: boolean;
 
-  @ApiProperty({ enum: ['GNSS', 'CELL'] })
+  @ApiProperty({ enum: ['GNSS', 'CELL', 'NETWORK'] })
   locationSource: LocationSource;
 
-  @ApiProperty({ description: 'true cuando locationSource es CELL.' })
+  @ApiProperty({ description: 'true cuando locationSource es CELL o NETWORK.' })
   isApproximate: boolean;
 
   @ApiProperty({ description: 'true si offlineSync es false y fechaHoraServidor está dentro del TTL.' })
