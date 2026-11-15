@@ -13,7 +13,13 @@ import { DeviceAuthGuard } from './guards/device-auth.guard.js';
 @Module({
   imports: [LocationsModule, EmergenciesModule, DevicesModule, UserDevicesModule],
   controllers: [DeviceApiController],
-  providers: [DeviceApiService, DeviceAuthService, DeviceAuthGuard, NetworkLocationService, NetworkLocationJob],
+  providers: [
+    DeviceApiService,
+    DeviceAuthService,
+    DeviceAuthGuard,
+    NetworkLocationService,
+    NetworkLocationJob,
+  ],
   exports: [DeviceApiService],
 })
 export class DeviceApiModule {}

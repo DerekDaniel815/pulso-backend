@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EstadoDispositivo } from '../common/enums.js';
 import type { AuthenticatedDevice } from '../common/types/authenticated-device.js';
@@ -31,7 +31,7 @@ export class NetworkLocationService {
     private readonly devicesService: DevicesService,
     private readonly locationAccessService: LocationAccessService,
     private readonly prisma: PrismaService,
-    client?: GoogleGeolocationClient,
+    @Optional() client?: GoogleGeolocationClient,
   ) {
     this.client = client ?? new GoogleGeolocationClient();
   }
