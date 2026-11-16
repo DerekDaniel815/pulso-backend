@@ -364,11 +364,8 @@ export class EmergenciesService {
     await this.locationsService.publishLatestForAssignment(emergency.idUsuarioDispositivo);
   }
 
-  private async findLatestLocation(idUsuarioDispositivo: number) {
-    return this.prisma.ubicacion.findFirst({
-      where: { idUsuarioDispositivo },
-      orderBy: { fechaHoraServidor: 'desc' },
-    });
+  private findLatestLocation(idUsuarioDispositivo: number) {
+    return this.locationsService.findLocationForActiveEmergency(idUsuarioDispositivo);
   }
 
   private async findEmergencyRecipients(idUsuario: number): Promise<number[]> {

@@ -205,6 +205,22 @@ export class LocationsService {
     });
   }
 
+  async findLocationForActiveEmergency(idUsuarioDispositivo: number): Promise<Ubicacion | null> {
+    const emergency = await this.prisma.emergencia.findFirst({
+      where: { idUsuarioDispositivo, estado: 'ACTIVA' },
+      select: { ubicacionSuprimidaDesde: true },
+    });
+    return this.prisma.ubicacion.findFirst({
+      where: {
+        idUsuarioDispositivo,
+        ...(emergency?.ubicacionSuprimidaDesde
+          ? { fechaHoraServidor: { gt: emergency.ubicacionSuprimidaDesde } }
+          : {}),
+      },
+      orderBy: { fechaHoraServidor: 'desc' },
+    });
+  }
+
   private async findLastKnownRow(idUsuarioDispositivo: number): Promise<Ubicacion | null> {
     return this.prisma.ubicacion.findFirst({
       where: { idUsuarioDispositivo },
@@ -236,7 +252,7 @@ export class LocationsService {
       }
 
       const location = emergenciaActiva
-        ? await this.findLastKnownRow(assignment.idUsuarioDispositivo)
+        ? await this.findLocationForActiveEmergency(assignment.idUsuarioDispositivo)
         : await this.findLiveRow(assignment.idUsuarioDispositivo, row.ubicacionVisibleDesde);
 
       if (!location) {

@@ -250,6 +250,7 @@ describe('LocationsService mapa en vivo', () => {
       findFirst: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
     };
+    emergencia: { findFirst: ReturnType<typeof vi.fn> };
   };
   let findVisibleAssignments: ReturnType<typeof vi.fn>;
   let hasActiveEmergency: ReturnType<typeof vi.fn>;
@@ -269,6 +270,7 @@ describe('LocationsService mapa en vivo', () => {
         findFirst: vi.fn().mockResolvedValue(locationRow),
         findMany: vi.fn().mockResolvedValue([locationRow]),
       },
+      emergencia: { findFirst: vi.fn().mockResolvedValue(null) },
     };
     findVisibleAssignments = vi.fn().mockResolvedValue([
       {

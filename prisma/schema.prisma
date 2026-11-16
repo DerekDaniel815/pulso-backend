@@ -247,6 +247,8 @@ model Emergencia {
   motivoFinalizacion   String?   @map("motivo_finalizacion") @db.VarChar(20)
   finalizadaDesde      String?   @map("finalizada_desde") @db.VarChar(20)
   descripcion          String?   @db.VarChar(500)
+  /// Si la última coordenada Google se depuró, no se revive un punto anterior.
+  ubicacionSuprimidaDesde DateTime? @map("ubicacion_suprimida_desde") @db.Timestamptz(6)
 
   usuarioDispositivo UsuarioDispositivo @relation(fields: [idUsuarioDispositivo], references: [idUsuarioDispositivo], onDelete: NoAction, onUpdate: NoAction, map: "fk_emergencia_usuario_dispositivo")
   simulationSession  SimulationSession? @relation(fields: [idSimulationSession], references: [idSimulationSession], onDelete: NoAction, onUpdate: NoAction, map: "fk_emergencia_simulation_session")

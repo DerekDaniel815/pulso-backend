@@ -52,7 +52,7 @@ describe('EmergenciesService.createForDevice', () => {
       prisma as never,
       { createForUsers: vi.fn() } as never,
       { canViewAssignmentLocation: vi.fn() } as never,
-      { createForAssignment: vi.fn(), publishLatestForAssignment: vi.fn() } as never,
+      { createForAssignment: vi.fn(), publishLatestForAssignment: vi.fn(), findLocationForActiveEmergency: vi.fn().mockResolvedValue(null) } as never,
       { notifyEmergencyPublicUpdated: vi.fn(), notifyEmergencyPublicEnded: vi.fn(), notifyDeviceModeUpdated } as never,
       { sweepOverdue: vi.fn(), finalizeIfActive: vi.fn() } as never,
     );
@@ -144,7 +144,7 @@ describe('EmergenciesService.finish', () => {
       } as never,
       { createForUsers: vi.fn() } as never,
       {} as never,
-      { publishLatestForAssignment: vi.fn() } as never,
+      { publishLatestForAssignment: vi.fn(), findLocationForActiveEmergency: vi.fn().mockResolvedValue(null) } as never,
       { notifyEmergencyPublicEnded, notifyEmergencyPublicUpdated: vi.fn(), notifyDeviceModeUpdated: vi.fn() } as never,
       { sweepOverdue: vi.fn(), finalizeIfActive } as never,
     );

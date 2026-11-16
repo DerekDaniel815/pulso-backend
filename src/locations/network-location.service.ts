@@ -11,11 +11,13 @@ import { GoogleGeolocationClient, type GoogleGeolocationOutcome } from './google
 
 const CACHE_MS = 10 * 60 * 1000;
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const RENEW_SECONDS = 10;
 
 interface CachedFix {
   latitude: number;
   longitude: number;
   accuracy: number;
+  estimatedAt: string;
   expiresAt: number;
 }
 
@@ -54,7 +56,7 @@ export class NetworkLocationService {
 
     const cacheKey = `${device.idDispositivo}:${dto.mcc}:${dto.mnc}:${dto.tac}:${dto.eci}`;
     const cached = this.remembered(cacheKey);
-    const outcome: GoogleGeolocationOutcome | { kind: 'cached'; latitude: number; longitude: number; accuracy: number } =
+    const outcome: GoogleGeolocationOutcome | { kind: 'cached'; latitude: number; longitude: number; accuracy: number; estimatedAt: string } =
       cached == null
         ? await this.client.locate({
             mcc: dto.mcc,
@@ -75,20 +77,111 @@ export class NetworkLocationService {
       return { ...base, status: 'unavailable', retryAfterSeconds: 120 };
     }
 
+    const estimatedAt = outcome.kind === 'located' ? new Date().toISOString() : outcome.estimatedAt;
     if (outcome.kind === 'located') {
       this.cache.set(cacheKey, {
         latitude: outcome.latitude,
         longitude: outcome.longitude,
         accuracy: outcome.accuracy,
+        estimatedAt,
         expiresAt: Date.now() + CACHE_MS,
       });
     }
 
+    const receivedAt = await this.rememberLocation(device, dto, {
+      latitude: outcome.latitude,
+      longitude: outcome.longitude,
+      accuracy: outcome.accuracy,
+      estimatedAt,
+    });
+    return {
+      ...base,
+      status: outcome.kind === 'cached' ? 'cached' : 'located',
+      retryAfterSeconds: RENEW_SECONDS,
+      receivedAt,
+    };
+  }
+
+  async purgeExpired(now = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - RETENTION_MS);
+    const expired = await this.prisma.ubicacion.findMany({
+      where: { fuente: 'NETWORK', fechaHoraDispositivo: { lt: cutoff } },
+      select: { idUbicacion: true, idUsuarioDispositivo: true },
+    });
+    if (expired.length === 0) {
+      return 0;
+    }
+    const assignments = [...new Set(expired.map((row) => row.idUsuarioDispositivo))];
+    const active = await this.prisma.emergencia.findMany({
+      where: { estado: 'ACTIVA', idUsuarioDispositivo: { in: assignments } },
+      select: { idEmergencia: true, idUsuarioDispositivo: true },
+    });
+    for (const emergency of active) {
+      const latest = await this.prisma.ubicacion.findFirst({
+        where: { idUsuarioDispositivo: emergency.idUsuarioDispositivo },
+        orderBy: { fechaHoraServidor: 'desc' },
+        select: { idUbicacion: true, fechaHoraServidor: true },
+      });
+      const removesLatest = expired.some((row) => row.idUbicacion === latest?.idUbicacion);
+      if (removesLatest && latest) {
+        await this.prisma.emergencia.update({
+          where: { idEmergencia: emergency.idEmergencia },
+          data: { ubicacionSuprimidaDesde: latest.fechaHoraServidor },
+        });
+      }
+    }
+    const removed = await this.prisma.ubicacion.deleteMany({
+      where: { idUbicacion: { in: expired.map((row) => row.idUbicacion) }, fuente: 'NETWORK' },
+    });
+    if (removed.count > 0) {
+      this.logger.log(`[NETWORK] Coordenadas Google depuradas: ${removed.count}`);
+    }
+    return removed.count;
+  }
+
+  private async rememberLocation(
+    device: AuthenticatedDevice,
+    dto: DeviceNetworkCellDto,
+    fix: { latitude: number; longitude: number; accuracy: number; estimatedAt: string },
+  ): Promise<string> {
+    const reportedAt = Date.parse(dto.deviceTimestamp);
+    const latest = await this.prisma.ubicacion.findFirst({
+      where: { idUsuarioDispositivo: device.idUsuarioDispositivo },
+      orderBy: { fechaHoraServidor: 'desc' },
+    });
+    if (
+      latest?.fuente === 'GNSS' &&
+      Number.isFinite(reportedAt) &&
+      latest.fechaHoraServidor.getTime() >= reportedAt
+    ) {
+      return latest.fechaHoraServidor.toISOString();
+    }
+    if (dto.clientLocationId) {
+      const sameReport = await this.prisma.ubicacion.findFirst({
+        where: { idUsuarioDispositivo: device.idUsuarioDispositivo, clientLocationId: dto.clientLocationId },
+      });
+      if (sameReport) {
+        return sameReport.fechaHoraServidor.toISOString();
+      }
+    }
+    const estimateTime = new Date(fix.estimatedAt).getTime();
+    if (
+      latest?.fuente === 'NETWORK' &&
+      latest.fechaHoraDispositivo.getTime() === estimateTime
+    ) {
+      const refreshed = await this.prisma.ubicacion.update({
+        where: { idUbicacion: latest.idUbicacion },
+        data: { fechaHoraServidor: new Date() },
+      });
+      await this.locationsService.publishLatestForAssignment(device.idUsuarioDispositivo);
+      await this.devicesService.touchConnection(device.idDispositivo);
+      return refreshed.fechaHoraServidor.toISOString();
+    }
     const stored = await this.locationsService.storeDeviceLocation(device.idUsuarioDispositivo, device.idDispositivo, {
-      latitud: outcome.latitude,
-      longitud: outcome.longitude,
-      precisionGps: outcome.accuracy,
-      fechaHoraDispositivo: dto.deviceTimestamp,
+      latitud: fix.latitude,
+      longitud: fix.longitude,
+      precisionGps: fix.accuracy,
+      fechaHoraDispositivo: fix.estimatedAt,
       fueSincronizadaOffline: false,
       clientLocationId: dto.clientLocationId,
       fuente: 'NETWORK',
@@ -96,42 +189,7 @@ export class NetworkLocationService {
     if (stored.created) {
       await this.devicesService.touchConnection(device.idDispositivo);
     }
-    return {
-      ...base,
-      status: outcome.kind === 'cached' ? 'cached' : 'located',
-      retryAfterSeconds: 60,
-      receivedAt: stored.location.fechaHoraServidor,
-    };
-  }
-
-  async purgeExpired(now = new Date()): Promise<number> {
-    const cutoff = new Date(now.getTime() - RETENTION_MS);
-    const active = await this.prisma.emergencia.findMany({
-      where: { estado: 'ACTIVA' },
-      select: { idUsuarioDispositivo: true },
-    });
-    const protectedIds: bigint[] = [];
-    for (const emergency of active) {
-      const latest = await this.prisma.ubicacion.findFirst({
-        where: { idUsuarioDispositivo: emergency.idUsuarioDispositivo },
-        orderBy: { fechaHoraServidor: 'desc' },
-        select: { idUbicacion: true, fuente: true },
-      });
-      if (latest?.fuente === 'NETWORK') {
-        protectedIds.push(latest.idUbicacion);
-      }
-    }
-    const removed = await this.prisma.ubicacion.deleteMany({
-      where: {
-        fuente: 'NETWORK',
-        fechaHoraServidor: { lt: cutoff },
-        ...(protectedIds.length > 0 ? { idUbicacion: { notIn: protectedIds } } : {}),
-      },
-    });
-    if (removed.count > 0) {
-      this.logger.log(`[NETWORK] Coordenadas Google depuradas: ${removed.count}`);
-    }
-    return removed.count;
+    return stored.location.fechaHoraServidor;
   }
 
   private remembered(cacheKey: string): CachedFix | null {

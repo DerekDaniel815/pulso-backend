@@ -29,22 +29,34 @@ function serviceFor(options: {
   locate?: ReturnType<typeof vi.fn>;
   store?: ReturnType<typeof vi.fn>;
   emergency?: boolean;
-  prisma?: { emergencia: { findMany: ReturnType<typeof vi.fn> }; ubicacion: { findFirst: ReturnType<typeof vi.fn>; deleteMany: ReturnType<typeof vi.fn> } };
+  prisma?: {
+    emergencia: { findMany: ReturnType<typeof vi.fn>; update?: ReturnType<typeof vi.fn> };
+    ubicacion: {
+      findFirst: ReturnType<typeof vi.fn>;
+      findMany?: ReturnType<typeof vi.fn>;
+      deleteMany?: ReturnType<typeof vi.fn>;
+      update?: ReturnType<typeof vi.fn>;
+    };
+  };
 }) {
   const locate = options.locate ?? vi.fn();
   const store = options.store ?? vi.fn().mockResolvedValue({
     location: { fechaHoraServidor: '2026-11-15T22:00:01.000Z' },
     created: true,
   });
+  const publishLatestForAssignment = vi.fn();
   const service = new NetworkLocationService(
     { get: (name: string) => (name === 'GOOGLE_GEOLOCATION_API_KEY' ? options.key : undefined) } as never,
-    { storeDeviceLocation: store } as never,
+    { storeDeviceLocation: store, publishLatestForAssignment } as never,
     { touchConnection: vi.fn().mockResolvedValue(new Date()) } as never,
     { hasActiveEmergency: vi.fn().mockResolvedValue(options.emergency ?? false) } as never,
-    (options.prisma ?? { emergencia: { findMany: vi.fn() }, ubicacion: { findFirst: vi.fn(), deleteMany: vi.fn() } }) as never,
+    (options.prisma ?? {
+      emergencia: { findMany: vi.fn(), update: vi.fn() },
+      ubicacion: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn(), deleteMany: vi.fn(), update: vi.fn() },
+    }) as never,
     { locate } as unknown as GoogleGeolocationClient,
   );
-  return { service, locate, store };
+  return { service, locate, store, publishLatestForAssignment };
 }
 
 describe('NetworkLocationService', () => {
@@ -58,26 +70,71 @@ describe('NetworkLocationService', () => {
     expect(store).not.toHaveBeenCalled();
   });
 
-  it('guarda NETWORK con la respuesta validada y reutiliza la caché de la misma celda', async () => {
+  it('guarda la hora de la estimación y renueva el mismo punto sin otra consulta', async () => {
     const locate = vi.fn().mockResolvedValue({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 900 });
-    const { service, store } = serviceFor({ key: 'server-key', locate });
+    let estimate = '';
+    const findFirst = vi.fn(async (args: { where?: { clientLocationId?: string } }) => {
+      if (args?.where?.clientLocationId || estimate === '') return null;
+      return {
+        idUbicacion: 4n,
+        fuente: 'NETWORK',
+        fechaHoraDispositivo: new Date(estimate),
+        fechaHoraServidor: new Date('2026-11-15T22:00:01.000Z'),
+      };
+    });
+    const update = vi.fn().mockResolvedValue({ fechaHoraServidor: new Date('2026-11-15T22:00:11.000Z') });
+    const store = vi.fn(async (_assignment: number, _deviceId: number, input: { fechaHoraDispositivo: string }) => {
+      estimate = input.fechaHoraDispositivo;
+      return { location: { fechaHoraServidor: '2026-11-15T22:00:01.000Z' }, created: true };
+    });
+    const { service, publishLatestForAssignment } = serviceFor({
+      key: 'server-key',
+      locate,
+      store,
+      prisma: {
+        emergencia: { findMany: vi.fn() },
+        ubicacion: { findFirst, update },
+      },
+    });
 
-    await expect(service.report(device, observation)).resolves.toMatchObject({ status: 'located', retryAfterSeconds: 60 });
+    await expect(service.report(device, observation)).resolves.toMatchObject({
+      status: 'located',
+      retryAfterSeconds: 10,
+    });
     await expect(service.report(device, { ...observation, clientLocationId: 'b0000000100000003' })).resolves.toMatchObject({
       status: 'cached',
+      retryAfterSeconds: 10,
+      receivedAt: '2026-11-15T22:00:11.000Z',
     });
 
     expect(locate).toHaveBeenCalledOnce();
-    expect(store).toHaveBeenNthCalledWith(1, 1, 5, expect.objectContaining({
-      fuente: 'NETWORK',
-      latitud: -12.05,
-      longitud: -77.04,
-      precisionGps: 900,
-      clientLocationId: 'b0000000100000002',
-    }));
-    expect(store).toHaveBeenNthCalledWith(2, 1, 5, expect.objectContaining({
-      clientLocationId: 'b0000000100000003',
-    }));
+    expect(store).toHaveBeenCalledOnce();
+    expect(store.mock.calls[0][2].fechaHoraDispositivo).not.toBe(observation.deviceTimestamp);
+    expect(update).toHaveBeenCalledWith({
+      where: { idUbicacion: 4n },
+      data: { fechaHoraServidor: expect.any(Date) },
+    });
+    expect(publishLatestForAssignment).toHaveBeenCalledWith(1);
+  });
+
+  it('no pisa un GNSS que llegó después de la lectura de celda', async () => {
+    const locate = vi.fn().mockResolvedValue({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 900 });
+    const findFirst = vi.fn().mockResolvedValue({
+      fuente: 'GNSS',
+      fechaHoraServidor: new Date('2026-11-15T22:00:05.000Z'),
+      fechaHoraDispositivo: new Date('2026-11-15T22:00:05.000Z'),
+    });
+    const { service, store } = serviceFor({
+      key: 'server-key',
+      locate,
+      prisma: { emergencia: { findMany: vi.fn() }, ubicacion: { findFirst } },
+    });
+
+    await expect(service.report(device, observation)).resolves.toMatchObject({
+      status: 'located',
+      receivedAt: '2026-11-15T22:00:05.000Z',
+    });
+    expect(store).not.toHaveBeenCalled();
   });
 
   it('espera más ante cuota y no guarda una ausencia', async () => {
@@ -93,23 +150,35 @@ describe('NetworkLocationService', () => {
     expect(missing.store).not.toHaveBeenCalled();
   });
 
-  it('depura NETWORK vencido y conserva GNSS y el punto de una emergencia activa', async () => {
-    const deleteMany = vi.fn().mockResolvedValue({ count: 2 });
-    const findFirst = vi.fn().mockResolvedValue({ idUbicacion: 90n, fuente: 'NETWORK' });
+  it('depura la coordenada Google vencida aunque sea la última de una emergencia activa', async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const update = vi.fn();
+    const findMany = vi.fn().mockResolvedValue([{ idUbicacion: 90n, idUsuarioDispositivo: 7 }]);
+    const findFirst = vi.fn().mockResolvedValue({
+      idUbicacion: 90n,
+      fechaHoraServidor: new Date('2026-10-01T00:00:00.000Z'),
+    });
     const { service } = serviceFor({
       prisma: {
-        emergencia: { findMany: vi.fn().mockResolvedValue([{ idUsuarioDispositivo: 7 }]) },
-        ubicacion: { findFirst, deleteMany },
+        emergencia: {
+          findMany: vi.fn().mockResolvedValue([{ idEmergencia: 3n, idUsuarioDispositivo: 7 }]),
+          update,
+        },
+        ubicacion: { findMany, findFirst, deleteMany },
       },
     });
 
-    await expect(service.purgeExpired(new Date('2026-11-15T00:00:00.000Z'))).resolves.toBe(2);
+    await expect(service.purgeExpired(new Date('2026-11-15T00:00:00.000Z'))).resolves.toBe(1);
+    expect(findMany).toHaveBeenCalledWith({
+      where: { fuente: 'NETWORK', fechaHoraDispositivo: { lt: new Date('2026-10-16T00:00:00.000Z') } },
+      select: { idUbicacion: true, idUsuarioDispositivo: true },
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: { idEmergencia: 3n },
+      data: { ubicacionSuprimidaDesde: new Date('2026-10-01T00:00:00.000Z') },
+    });
     expect(deleteMany).toHaveBeenCalledWith({
-      where: {
-        fuente: 'NETWORK',
-        fechaHoraServidor: { lt: new Date('2026-10-16T00:00:00.000Z') },
-        idUbicacion: { notIn: [90n] },
-      },
+      where: { idUbicacion: { in: [90n] }, fuente: 'NETWORK' },
     });
   });
 });

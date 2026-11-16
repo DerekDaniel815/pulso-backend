@@ -65,7 +65,7 @@ export class DeviceNetworkCellResponseDto {
   @ApiProperty({ enum: ['disabled', 'located', 'cached', 'unavailable', 'retry'] })
   status: 'disabled' | 'located' | 'cached' | 'unavailable' | 'retry';
 
-  @ApiProperty({ description: 'Segundos que el firmware debe esperar antes de repetir esta celda.' })
+  @ApiProperty({ description: 'Segundos entre reportes aceptados. located y cached usan 10.' })
   retryAfterSeconds: number;
 
   @ApiProperty()

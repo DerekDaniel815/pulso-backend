@@ -120,7 +120,7 @@ describe('EmergenciesService visibilidad pública', () => {
       prisma as never,
       {} as never,
       {} as never,
-      { publishLatestForAssignment: vi.fn() } as never,
+      { publishLatestForAssignment: vi.fn(), findLocationForActiveEmergency: vi.fn().mockResolvedValue(null) } as never,
       { notifyEmergencyPublicUpdated: vi.fn(), notifyEmergencyPublicEnded: vi.fn() } as never,
       { sweepOverdue: vi.fn(), finalizeIfActive: vi.fn() } as never,
     );
