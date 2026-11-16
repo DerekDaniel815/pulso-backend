@@ -144,7 +144,12 @@ describe('NetworkLocationService', () => {
       key: 'server-key',
       locate: vi.fn().mockResolvedValue({
         kind: 'rejected',
-        diagnostic: { httpStatus: 403, category: 'restriccion-aplicacion', reason: 'API_KEY_HTTP_REFERRER_BLOCKED' },
+        diagnostic: {
+          httpStatus: 403,
+          category: 'restriccion-aplicacion',
+          status: 'PERMISSION_DENIED',
+          reason: 'API_KEY_HTTP_REFERRER_BLOCKED',
+        },
       }),
     });
     await expect(rejected.service.report(device, observation)).resolves.toMatchObject({
@@ -153,7 +158,7 @@ describe('NetworkLocationService', () => {
     });
     expect(rejected.store).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(
-      '[GEOLOCATION] http=403 categoria=restriccion-aplicacion reason=API_KEY_HTTP_REFERRER_BLOCKED',
+      '[GEOLOCATION] http=403 status=PERMISSION_DENIED reason=API_KEY_HTTP_REFERRER_BLOCKED',
     );
     const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
     expect(logged).not.toMatch(/server-key|716|23100|1234567|geolocate|AIza/);
@@ -162,7 +167,7 @@ describe('NetworkLocationService', () => {
       key: 'server-key',
       locate: vi.fn().mockResolvedValue({
         kind: 'failed',
-        diagnostic: { httpStatus: 503, category: 'temporal', reason: null },
+        diagnostic: { httpStatus: 503, category: 'temporal', status: null, reason: null },
       }),
     });
     await expect(outage.service.report(device, observation)).resolves.toMatchObject({

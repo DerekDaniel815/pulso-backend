@@ -22,6 +22,7 @@ export type GoogleFailureCategory =
 export interface GoogleFailureDiagnostic {
   httpStatus: number | null;
   category: GoogleFailureCategory;
+  status: string | null;
   reason: string | null;
 }
 
@@ -59,16 +60,37 @@ export function sanitizeGoogleReason(value: unknown): string | null {
 
 export function formatGoogleDiagnostic(diagnostic: GoogleFailureDiagnostic): string {
   const http = diagnostic.httpStatus == null ? 'none' : String(diagnostic.httpStatus);
+  const status = sanitizeGoogleReason(diagnostic.status);
   const reason = sanitizeGoogleReason(diagnostic.reason);
-  return `[GEOLOCATION] http=${http} categoria=${diagnostic.category}${reason == null ? '' : ` reason=${reason}`}`;
+  return `[GEOLOCATION] http=${http}${status == null ? '' : ` status=${status}`}${reason == null ? '' : ` reason=${reason}`}`;
 }
 
 function diagnostic(
   httpStatus: number | null,
   category: GoogleFailureCategory,
-  reason: string | null = null,
+  reason: string | null,
+  status: string | null,
 ): GoogleFailureDiagnostic {
-  return { httpStatus, category, reason: sanitizeGoogleReason(reason) };
+  return {
+    httpStatus,
+    category,
+    status: sanitizeGoogleReason(status),
+    reason: sanitizeGoogleReason(reason),
+  };
+}
+
+const GENERIC_GOOGLE_REASONS = new Set(['forbidden']);
+
+function rememberReason(raw: unknown, specific: string[], generic: string[]): void {
+  const clean = sanitizeGoogleReason(raw);
+  if (clean == null) {
+    return;
+  }
+  if (GENERIC_GOOGLE_REASONS.has(clean.toLowerCase())) {
+    generic.push(clean);
+    return;
+  }
+  specific.push(clean);
 }
 
 function googleTokens(body: unknown): { reason: string | null; status: string | null } {
@@ -80,24 +102,34 @@ function googleTokens(body: unknown): { reason: string | null; status: string | 
     return { reason: null, status: null };
   }
   const record = error as { status?: unknown; errors?: unknown; details?: unknown };
-  let reason: string | null = null;
-  if (Array.isArray(record.errors)) {
-    const first = record.errors[0];
-    if (first != null && typeof first === 'object') {
-      reason = sanitizeGoogleReason((first as { reason?: unknown }).reason);
+  const specific: string[] = [];
+  const generic: string[] = [];
+  const errorInfo: unknown[] = [];
+  const otherDetails: unknown[] = [];
+  if (Array.isArray(record.details)) {
+    for (const detail of record.details) {
+      if (detail == null || typeof detail !== 'object') {
+        continue;
+      }
+      const typeName = (detail as { '@type'?: unknown })['@type'];
+      const bucket = typeof typeName === 'string' && typeName.includes('ErrorInfo') ? errorInfo : otherDetails;
+      bucket.push((detail as { reason?: unknown }).reason);
     }
   }
-  if (reason == null && Array.isArray(record.details)) {
-    for (const detail of record.details) {
-      if (detail != null && typeof detail === 'object') {
-        reason = sanitizeGoogleReason((detail as { reason?: unknown }).reason);
-        if (reason != null) {
-          break;
-        }
+  for (const reason of [...errorInfo, ...otherDetails]) {
+    rememberReason(reason, specific, generic);
+  }
+  if (Array.isArray(record.errors)) {
+    for (const item of record.errors) {
+      if (item != null && typeof item === 'object') {
+        rememberReason((item as { reason?: unknown }).reason, specific, generic);
       }
     }
   }
-  return { reason, status: sanitizeGoogleReason(record.status) };
+  return {
+    reason: specific[0] ?? generic[0] ?? null,
+    status: sanitizeGoogleReason(record.status),
+  };
 }
 
 function tokenOf(reason: string | null, status: string | null): string {
@@ -106,12 +138,11 @@ function tokenOf(reason: string | null, status: string | null): string {
 
 export function classifyGoogleFailure(httpStatus: number, body: unknown): GoogleGeolocationOutcome {
   const { reason, status } = googleTokens(body);
-  const reported = reason ?? status;
   const token = tokenOf(reason, status);
-  const info = diagnostic(httpStatus, 'temporal', reported);
+  const info = diagnostic(httpStatus, 'temporal', reason, status);
   const rejected = (category: GoogleFailureCategory): GoogleGeolocationOutcome => ({
     kind: 'rejected',
-    diagnostic: diagnostic(httpStatus, category, reported),
+    diagnostic: diagnostic(httpStatus, category, reason, status),
   });
 
   if (token === 'API_KEY_INVALID' || token === 'KEYINVALID') {
@@ -137,13 +168,13 @@ export function classifyGoogleFailure(httpStatus: number, body: unknown): Google
     token === 'USERRATELIMITEXCEEDED' ||
     token === 'RATELIMITEXCEEDED'
   ) {
-    return { kind: 'quota', diagnostic: diagnostic(httpStatus, 'cuota', reported) };
+    return { kind: 'quota', diagnostic: diagnostic(httpStatus, 'cuota', reason, status) };
   }
   if (httpStatus === 404 || token === 'NOT_FOUND' || token === 'ZERO_RESULTS') {
-    return { kind: 'unavailable', diagnostic: diagnostic(httpStatus, 'sin-resultado', reported) };
+    return { kind: 'unavailable', diagnostic: diagnostic(httpStatus, 'sin-resultado', reason, status) };
   }
   if (token === 'PARSEERROR' || token === 'INVALID_ARGUMENT') {
-    return { kind: 'failed', diagnostic: diagnostic(httpStatus, 'json-invalido', reported) };
+    return { kind: 'failed', diagnostic: diagnostic(httpStatus, 'json-invalido', reason, status) };
   }
   if (httpStatus === 400 || httpStatus === 403) {
     return rejected('configuracion');
@@ -204,7 +235,7 @@ export class GoogleGeolocationClient {
       } catch {
         return {
           kind: 'failed',
-          diagnostic: diagnostic(response.status, 'json-invalido'),
+          diagnostic: diagnostic(response.status, 'json-invalido', null, null),
         };
       }
       if (!response.ok || (body != null && typeof body === 'object' && 'error' in body)) {
@@ -218,20 +249,20 @@ export class GoogleGeolocationClient {
       const longitude = Number(located.location?.lng);
       const accuracy = Number(located.accuracy);
       if (!googleCoordinateIsUsable(latitude, longitude, accuracy)) {
-        return { kind: 'unavailable', diagnostic: diagnostic(response.status, 'sin-resultado') };
+        return { kind: 'unavailable', diagnostic: diagnostic(response.status, 'sin-resultado', null, null) };
       }
       return {
         kind: 'located',
         latitude,
         longitude,
         accuracy,
-        diagnostic: diagnostic(response.status, 'ubicada'),
+        diagnostic: diagnostic(response.status, 'ubicada', null, null),
       };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        return { kind: 'timeout', diagnostic: diagnostic(null, 'timeout') };
+        return { kind: 'timeout', diagnostic: diagnostic(null, 'timeout', null, null) };
       }
-      return { kind: 'failed', diagnostic: diagnostic(null, 'temporal') };
+      return { kind: 'failed', diagnostic: diagnostic(null, 'temporal', null, null) };
     } finally {
       clearTimeout(timer);
     }

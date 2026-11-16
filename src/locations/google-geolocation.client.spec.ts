@@ -93,7 +93,34 @@ describe('GoogleGeolocationClient', () => {
       error: { status: 'PERMISSION_DENIED', details: [{ reason: 'API_KEY_HTTP_REFERRER_BLOCKED' }] },
     })).toMatchObject({
       kind: 'rejected',
-      diagnostic: { httpStatus: 403, category: 'restriccion-aplicacion', reason: 'API_KEY_HTTP_REFERRER_BLOCKED' },
+      diagnostic: {
+        httpStatus: 403,
+        category: 'restriccion-aplicacion',
+        status: 'PERMISSION_DENIED',
+        reason: 'API_KEY_HTTP_REFERRER_BLOCKED',
+      },
+    });
+    expect(classifyGoogleFailure(403, {
+      error: {
+        code: 403,
+        message: 'Requests from referer are blocked. key=AIzaSecret https://maps.googleapis.com/geolocate?key=AIzaSecret',
+        errors: [{ domain: 'global', reason: 'forbidden', message: 'cell 716-17-23100-1234567' }],
+        status: 'PERMISSION_DENIED',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            reason: 'API_KEY_IP_ADDRESS_BLOCKED',
+            metadata: { callerIp: '203.0.113.10', consumer: 'projects/pulso' },
+          },
+        ],
+      },
+    })).toMatchObject({
+      kind: 'rejected',
+      diagnostic: {
+        httpStatus: 403,
+        status: 'PERMISSION_DENIED',
+        reason: 'API_KEY_IP_ADDRESS_BLOCKED',
+      },
     });
     expect(classifyGoogleFailure(403, { error: { errors: [{ reason: 'accessNotConfigured' }] } })).toMatchObject({
       kind: 'rejected',
@@ -101,7 +128,7 @@ describe('GoogleGeolocationClient', () => {
     });
     expect(classifyGoogleFailure(403, { error: { status: 'BILLING_DISABLED' } })).toMatchObject({
       kind: 'rejected',
-      diagnostic: { category: 'facturacion', reason: 'BILLING_DISABLED' },
+      diagnostic: { category: 'facturacion', status: 'BILLING_DISABLED', reason: null },
     });
     expect(classifyGoogleFailure(403, {})).toMatchObject({
       kind: 'rejected',
@@ -127,18 +154,24 @@ describe('GoogleGeolocationClient', () => {
     });
   });
 
-  it('el registro solo conserva el código y un motivo seguro', () => {
-    const line = formatGoogleDiagnostic({
-      httpStatus: 403,
-      category: 'restriccion-aplicacion',
-      reason: 'API_KEY_HTTP_REFERRER_BLOCKED',
+  it('el registro solo conserva el código, el status y el motivo específico', () => {
+    const blocked = classifyGoogleFailure(403, {
+      error: {
+        message: 'key=AIzaSecret https://www.googleapis.com/geolocation/v1/geolocate?key=AIzaSecret',
+        errors: [{ reason: 'forbidden', message: '716 17 23100 1234567' }],
+        status: 'PERMISSION_DENIED',
+        details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'API_KEY_IP_ADDRESS_BLOCKED' }],
+      },
     });
-    expect(line).toBe('[GEOLOCATION] http=403 categoria=restriccion-aplicacion reason=API_KEY_HTTP_REFERRER_BLOCKED');
+    const line = formatGoogleDiagnostic(blocked.diagnostic!);
+    expect(line).toBe('[GEOLOCATION] http=403 status=PERMISSION_DENIED reason=API_KEY_IP_ADDRESS_BLOCKED');
+    expect(line).not.toMatch(/AIza|googleapis|geolocate|716|23100|1234567|203\.0\.113/);
     expect(formatGoogleDiagnostic({
       httpStatus: 400,
       category: 'clave-invalida',
+      status: 'INVALID_ARGUMENT',
       reason: 'AIzaSysecret?key=abc https://maps.googleapis.com 716-17',
-    })).toBe('[GEOLOCATION] http=400 categoria=clave-invalida');
+    })).toBe('[GEOLOCATION] http=400 status=INVALID_ARGUMENT');
   });
 
   it('descarta una coordenada o un radio inválidos', () => {
