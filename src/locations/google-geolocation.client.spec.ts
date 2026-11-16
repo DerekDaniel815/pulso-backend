@@ -122,6 +122,40 @@ describe('GoogleGeolocationClient', () => {
         reason: 'API_KEY_IP_ADDRESS_BLOCKED',
       },
     });
+    const legacyForbidden = classifyGoogleFailure(403, {
+      error: {
+        code: 403,
+        message: 'Requests to this API geolocation.googleapis.com method google.geolocation.v1.GeolocationService.Geolocate are blocked.',
+        errors: [{
+          domain: 'global',
+          reason: 'forbidden',
+          message: 'key=AIzaSecret https://maps.googleapis.com/geolocate?key=AIzaSecret 716-17-23100-1234567',
+        }],
+      },
+    });
+    expect(legacyForbidden).toMatchObject({
+      kind: 'rejected',
+      diagnostic: {
+        httpStatus: 403,
+        status: null,
+        reason: 'API_KEY_SERVICE_BLOCKED',
+      },
+    });
+    expect(formatGoogleDiagnostic(legacyForbidden.diagnostic!)).toBe(
+      '[GEOLOCATION] http=403 reason=API_KEY_SERVICE_BLOCKED',
+    );
+    expect(formatGoogleDiagnostic(legacyForbidden.diagnostic!)).not.toMatch(/forbidden|AIza|googleapis|geolocate|716|23100|1234567/);
+    const legacyText = classifyGoogleFailure(403, {
+      error: {
+        code: 403,
+        message: 'The caller does not have permission. key=AIzaSecret https://maps.googleapis.com/geolocate?key=AIzaSecret',
+        errors: [{ domain: 'global', reason: 'forbidden' }],
+      },
+    });
+    expect(formatGoogleDiagnostic(legacyText.diagnostic!)).toBe(
+      '[GEOLOCATION] http=403 reason=The_caller_does_not_have_permission',
+    );
+    expect(formatGoogleDiagnostic(legacyText.diagnostic!)).not.toMatch(/forbidden|AIza|googleapis/);
     expect(classifyGoogleFailure(403, { error: { errors: [{ reason: 'accessNotConfigured' }] } })).toMatchObject({
       kind: 'rejected',
       diagnostic: { category: 'api-deshabilitada', reason: 'accessNotConfigured' },

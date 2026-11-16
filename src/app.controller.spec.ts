@@ -24,5 +24,16 @@ describe('AppController', () => {
     it('should report an ok status', () => {
       expect(appController.getHealth()).toEqual({ status: 'ok' });
     });
+
+    it('incluye la revisión publicada cuando la plataforma la entrega', () => {
+      const previous = process.env.RENDER_GIT_COMMIT;
+      process.env.RENDER_GIT_COMMIT = 'afb79c6deadbeef';
+      expect(appController.getHealth()).toEqual({ status: 'ok', revision: 'afb79c6deadbeef' });
+      if (previous == null) {
+        delete process.env.RENDER_GIT_COMMIT;
+      } else {
+        process.env.RENDER_GIT_COMMIT = previous;
+      }
+    });
   });
 });

@@ -93,6 +93,73 @@ function rememberReason(raw: unknown, specific: string[], generic: string[]): vo
   specific.push(clean);
 }
 
+function canonicalReason(message: string): string | null {
+  const text = message.toLowerCase();
+  if (text.includes('ip address') || text.includes('ip restriction')) {
+    return 'API_KEY_IP_ADDRESS_BLOCKED';
+  }
+  if (text.includes('referer') || text.includes('referrer')) {
+    return 'API_KEY_HTTP_REFERRER_BLOCKED';
+  }
+  if (text.includes('android')) {
+    return 'API_KEY_ANDROID_APP_BLOCKED';
+  }
+  if (text.includes('ios')) {
+    return 'API_KEY_IOS_APP_BLOCKED';
+  }
+  if (text.includes('billing')) {
+    return 'BILLING_DISABLED';
+  }
+  if (text.includes('has not been used') || text.includes('is disabled') || text.includes('access not configured')) {
+    return 'SERVICE_DISABLED';
+  }
+  if (text.includes('api key not valid') || text.includes('invalid api key') || text.includes('missing a valid api key')) {
+    return 'API_KEY_INVALID';
+  }
+  if (text.includes('are blocked')) {
+    return 'API_KEY_SERVICE_BLOCKED';
+  }
+  return null;
+}
+
+function sanitizedMessageToken(message: string): string | null {
+  const stripped = message
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, ' ')
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, ' ')
+    .replace(/\bkey=\S+/gi, ' ')
+    .replace(/\bAIza[0-9A-Za-z\-_]*/g, ' ')
+    .replace(/\b[\w.-]+\.googleapis\.com\b/gi, ' ')
+    .replace(/\b\d{3,}\b/g, ' ');
+  const token = stripped
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64)
+    .replace(/_+$/g, '');
+  if (GENERIC_GOOGLE_REASONS.has(token.toLowerCase())) {
+    return null;
+  }
+  return sanitizeGoogleReason(token);
+}
+
+function reasonFromMessages(messages: unknown[]): string | null {
+  const texts = messages.filter((message): message is string => typeof message === 'string' && message.trim() !== '');
+  for (const message of texts) {
+    const mapped = canonicalReason(message);
+    if (mapped != null) {
+      return mapped;
+    }
+  }
+  for (const message of texts) {
+    const token = sanitizedMessageToken(message);
+    if (token != null) {
+      return token;
+    }
+  }
+  return null;
+}
+
 function googleTokens(body: unknown): { reason: string | null; status: string | null } {
   if (body == null || typeof body !== 'object') {
     return { reason: null, status: null };
@@ -101,11 +168,12 @@ function googleTokens(body: unknown): { reason: string | null; status: string | 
   if (error == null || typeof error !== 'object') {
     return { reason: null, status: null };
   }
-  const record = error as { status?: unknown; errors?: unknown; details?: unknown };
+  const record = error as { status?: unknown; message?: unknown; errors?: unknown; details?: unknown };
   const specific: string[] = [];
   const generic: string[] = [];
   const errorInfo: unknown[] = [];
   const otherDetails: unknown[] = [];
+  const messages: unknown[] = [record.message];
   if (Array.isArray(record.details)) {
     for (const detail of record.details) {
       if (detail == null || typeof detail !== 'object') {
@@ -123,11 +191,12 @@ function googleTokens(body: unknown): { reason: string | null; status: string | 
     for (const item of record.errors) {
       if (item != null && typeof item === 'object') {
         rememberReason((item as { reason?: unknown }).reason, specific, generic);
+        messages.push((item as { message?: unknown }).message);
       }
     }
   }
   return {
-    reason: specific[0] ?? generic[0] ?? null,
+    reason: specific[0] ?? reasonFromMessages(messages) ?? generic[0] ?? null,
     status: sanitizeGoogleReason(record.status),
   };
 }

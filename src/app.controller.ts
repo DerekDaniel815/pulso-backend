@@ -23,7 +23,11 @@ export class AppController {
     description: 'Servicio activo',
     schema: { example: { status: 'ok' } },
   })
-  getHealth(): { status: 'ok' } {
-    return { status: 'ok' };
+  getHealth(): { status: 'ok'; revision?: string } {
+    const revision = process.env.RENDER_GIT_COMMIT;
+    if (revision == null || !/^[0-9a-f]{7,40}$/.test(revision)) {
+      return { status: 'ok' };
+    }
+    return { status: 'ok', revision };
   }
 }
