@@ -4,6 +4,7 @@ import {
   formatGoogleDiagnostic,
   GoogleGeolocationClient,
   googleCoordinateIsUsable,
+  usableWifiAccessPoints,
 } from './google-geolocation.client.js';
 
 const cell = { mcc: 716, mnc: 17, tac: 23100, eci: 1234567, rsrp: -95 };
@@ -47,7 +48,37 @@ describe('GoogleGeolocationClient', () => {
         },
       ],
     });
-    expect(JSON.stringify(payload)).not.toMatch(/imsi|iccid|imei/i);
+    expect(JSON.stringify(payload)).not.toMatch(/imsi|iccid|imei|wifiAccessPoints|ssid/i);
+  });
+
+  it('combina la celda y las redes válidas en una sola consulta', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      response(200, { location: { lat: -12.0464, lng: -77.0428 }, accuracy: 35 }),
+    );
+    const client = new GoogleGeolocationClient(fetchImpl);
+    const wifi = [
+      { macAddress: '02:00:00:00:00:01', signalStrength: -40, ssid: 'casa', password: 'secreta' },
+      { macAddress: 'FF:FF:FF:FF:FF:FF', signalStrength: -30 },
+      { macAddress: '00:00:00:00:00:00', signalStrength: -30 },
+      { macAddress: '00:00:5E:00:00:01', signalStrength: -30 },
+      { macAddress: '01:00:5E:00:00:01', signalStrength: -30 },
+      { macAddress: '00:1A:2B:3C:4D:01', signalStrength: -70 },
+      { macAddress: '00:1a:2b:3c:4d:02', signalStrength: -62 },
+      { macAddress: '00:1A:2B:3C:4D:02', signalStrength: -80 },
+    ];
+    await expect(client.locate(cell, 'server-key', 8000, wifi as never)).resolves.toMatchObject({
+      kind: 'located',
+      accuracy: 35,
+    });
+    const payload = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(payload.considerIp).toBe(false);
+    expect(payload.cellTowers).toHaveLength(1);
+    expect(payload.wifiAccessPoints).toEqual([
+      { macAddress: '00:1a:2b:3c:4d:02', signalStrength: -62 },
+      { macAddress: '00:1a:2b:3c:4d:01', signalStrength: -70 },
+    ]);
+    expect(JSON.stringify(payload)).not.toMatch(/ssid|password|secreta|casa|AIza|02:00:00|ff:ff:ff|00:00:5e/i);
+    expect(usableWifiAccessPoints([{ macAddress: '00:1a:2b:3c:4d:01', signalStrength: -70 }])).toEqual([]);
   });
 
   it('distingue ausencia, cuota, timeout y caída temporal', async () => {

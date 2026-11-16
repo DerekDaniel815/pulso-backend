@@ -6,6 +6,57 @@ export interface LteCellQuery {
   rsrp?: number;
 }
 
+export interface WifiAccessPoint {
+  macAddress: string;
+  signalStrength: number;
+}
+
+const WIFI_MAC = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/;
+const MAX_WIFI_ACCESS_POINTS = 8;
+const MIN_WIFI_ACCESS_POINTS = 2;
+
+function macIsPublishable(mac: string): boolean {
+  if (!WIFI_MAC.test(mac) || mac === '00:00:00:00:00:00' || mac.startsWith('00:00:5e')) {
+    return false;
+  }
+  const first = Number.parseInt(mac.slice(0, 2), 16);
+  return (first & 0x01) === 0 && (first & 0x02) === 0;
+}
+
+export function usableWifiAccessPoints(input: unknown): WifiAccessPoint[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const strongest = new Map<string, number>();
+  for (const item of input) {
+    if (item == null || typeof item !== 'object') {
+      continue;
+    }
+    const macAddress = (item as { macAddress?: unknown }).macAddress;
+    const signalStrength = (item as { signalStrength?: unknown }).signalStrength;
+    if (typeof macAddress !== 'string' || typeof signalStrength !== 'number' || !Number.isInteger(signalStrength)) {
+      continue;
+    }
+    const mac = macAddress.toLowerCase();
+    if (!macIsPublishable(mac) || signalStrength < -120 || signalStrength > -20) {
+      continue;
+    }
+    const previous = strongest.get(mac);
+    if (previous == null || signalStrength > previous) {
+      strongest.set(mac, signalStrength);
+    }
+  }
+  const selected = [...strongest.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, MAX_WIFI_ACCESS_POINTS)
+    .map(([macAddress, signalStrength]) => ({ macAddress, signalStrength }));
+  return selected.length >= MIN_WIFI_ACCESS_POINTS ? selected : [];
+}
+
+export function wifiCacheIdentity(points: WifiAccessPoint[]): string {
+  return points.map((point) => point.macAddress).sort().join(',');
+}
+
 export type GoogleFailureCategory =
   | 'clave-invalida'
   | 'restriccion-aplicacion'
@@ -270,10 +321,16 @@ export function googleCoordinateIsUsable(latitude: number, longitude: number, ac
 export class GoogleGeolocationClient {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
 
-  async locate(cell: LteCellQuery, apiKey: string, timeoutMs = 8000): Promise<GoogleGeolocationOutcome> {
+  async locate(
+    cell: LteCellQuery,
+    apiKey: string,
+    timeoutMs = 8000,
+    wifi: WifiAccessPoint[] = [],
+  ): Promise<GoogleGeolocationOutcome> {
     if (!googleCellIsUsable(cell) || apiKey.trim() === '') {
       return { kind: 'failed' };
     }
+    const accessPoints = usableWifiAccessPoints(wifi);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -294,6 +351,14 @@ export class GoogleGeolocationClient {
                 ...(cell.rsrp == null ? {} : { signalStrength: cell.rsrp }),
               },
             ],
+            ...(accessPoints.length >= 2
+              ? {
+                  wifiAccessPoints: accessPoints.map((point) => ({
+                    macAddress: point.macAddress,
+                    signalStrength: point.signalStrength,
+                  })),
+                }
+              : {}),
           }),
           signal: controller.signal,
         },

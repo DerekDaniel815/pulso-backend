@@ -10,6 +10,8 @@ import { LocationsService } from './locations.service.js';
 import {
   formatGoogleDiagnostic,
   GoogleGeolocationClient,
+  usableWifiAccessPoints,
+  wifiCacheIdentity,
   type GoogleGeolocationOutcome,
 } from './google-geolocation.client.js';
 
@@ -78,7 +80,8 @@ export class NetworkLocationService {
       return { ...base, status: 'disabled', retryAfterSeconds: 300 };
     }
 
-    const cacheKey = `${device.idDispositivo}:${dto.mcc}:${dto.mnc}:${dto.tac}:${dto.eci}`;
+    const wifi = usableWifiAccessPoints(dto.wifiAccessPoints);
+    const cacheKey = `${device.idDispositivo}:${dto.mcc}:${dto.mnc}:${dto.tac}:${dto.eci}:${wifiCacheIdentity(wifi)}`;
     const cached = this.remembered(cacheKey);
     const outcome: GoogleGeolocationOutcome | { kind: 'cached'; latitude: number; longitude: number; accuracy: number; estimatedAt: string } =
       cached == null
@@ -88,7 +91,7 @@ export class NetworkLocationService {
             tac: dto.tac,
             eci: dto.eci,
             rsrp: dto.rsrp,
-          }, apiKey)
+          }, apiKey, 8000, wifi)
         : { kind: 'cached', ...cached };
 
     if (outcome.kind !== 'cached') {

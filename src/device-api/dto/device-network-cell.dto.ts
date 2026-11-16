@@ -1,6 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDateString, IsIn, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsDateString, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+
+export class DeviceWifiAccessPointDto {
+  @ApiProperty({ description: 'BSSID. No se envía el SSID ni la contraseña.' })
+  @IsString()
+  @MaxLength(17)
+  macAddress: string;
+
+  @ApiProperty({ description: 'Potencia de la señal en dBm.' })
+  @Type(() => Number)
+  @IsInt()
+  signalStrength: number;
+}
 
 export class DeviceNetworkCellDto {
   @ApiProperty({ enum: ['lte'] })
@@ -46,6 +58,17 @@ export class DeviceNetworkCellDto {
   @Min(-140)
   @Max(-40)
   rsrp?: number;
+
+  @ApiPropertyOptional({
+    type: [DeviceWifiAccessPointDto],
+    description: 'Puntos de acceso observados, sin conectarse a ellos. Si quedan menos de dos válidos, se usa solo la celda.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(16)
+  @ValidateNested({ each: true })
+  @Type(() => DeviceWifiAccessPointDto)
+  wifiAccessPoints?: DeviceWifiAccessPointDto[];
 
   @ApiProperty()
   @IsDateString()

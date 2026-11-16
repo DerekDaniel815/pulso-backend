@@ -176,6 +176,138 @@ describe('NetworkLocationService', () => {
     }
   });
 
+  it('una variación de señal no consulta de nuevo y un cambio de redes sí', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-15T22:00:00.000Z'));
+    try {
+      const locate = vi.fn()
+        .mockResolvedValueOnce({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 40 })
+        .mockResolvedValueOnce({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 28 });
+      const estimates: string[] = [];
+      const findFirst = vi.fn(async (args: { where?: { clientLocationId?: string } }) => {
+        if (args?.where?.clientLocationId || estimates.length === 0) {
+          return null;
+        }
+        return {
+          idUbicacion: 4n,
+          fuente: 'NETWORK',
+          fechaHoraDispositivo: new Date(estimates[0]),
+          fechaHoraServidor: new Date('2026-11-15T22:00:00.000Z'),
+        };
+      });
+      const store = vi.fn(async (_assignment: number, _deviceId: number, input: { fechaHoraDispositivo: string; precisionGps: number }) => {
+        estimates.unshift(input.fechaHoraDispositivo);
+        return { location: { fechaHoraServidor: input.fechaHoraDispositivo }, created: true };
+      });
+      const { service } = serviceFor({
+        key: 'server-key',
+        locate,
+        store,
+        prisma: {
+          emergencia: { findMany: vi.fn() },
+          ubicacion: { findFirst, update: vi.fn().mockResolvedValue({ fechaHoraServidor: new Date() }) },
+        },
+      });
+      const wifi = [
+        { macAddress: '00:1a:2b:3c:4d:01', signalStrength: -70 },
+        { macAddress: '00:1a:2b:3c:4d:02', signalStrength: -62 },
+      ];
+      await expect(service.report(device, { ...observation, wifiAccessPoints: wifi })).resolves.toMatchObject({
+        status: 'located',
+        retryAfterSeconds: 10,
+      });
+      vi.setSystemTime(new Date('2026-11-15T22:00:10.000Z'));
+      await expect(service.report(device, {
+        ...observation,
+        clientLocationId: 'b0000000100000003',
+        wifiAccessPoints: [
+          { macAddress: '00:1a:2b:3c:4d:01', signalStrength: -68 },
+          { macAddress: '00:1a:2b:3c:4d:02', signalStrength: -64 },
+        ],
+      })).resolves.toMatchObject({ status: 'cached', retryAfterSeconds: 10 });
+      expect(locate).toHaveBeenCalledOnce();
+
+      await expect(service.report(device, {
+        ...observation,
+        clientLocationId: 'b0000000100000004',
+        wifiAccessPoints: [
+          { macAddress: '00:1a:2b:3c:4d:01', signalStrength: -70 },
+          { macAddress: '00:1a:2b:3c:4d:09', signalStrength: -55 },
+        ],
+      })).resolves.toMatchObject({ status: 'located', retryAfterSeconds: 10 });
+      expect(locate).toHaveBeenCalledTimes(2);
+      expect(store.mock.calls[1][2].precisionGps).toBe(28);
+      expect(store.mock.calls[1][2].fechaHoraDispositivo).not.toBe(store.mock.calls[0][2].fechaHoraDispositivo);
+      expect(locate.mock.calls[1][3]).toEqual([
+        { macAddress: '00:1a:2b:3c:4d:09', signalStrength: -55 },
+        { macAddress: '00:1a:2b:3c:4d:01', signalStrength: -70 },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('tras 60 s la misma celda y las mismas redes consultan de nuevo', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-15T22:00:00.000Z'));
+    try {
+      const locate = vi.fn().mockResolvedValue({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 40 });
+      const estimates: string[] = [];
+      const findFirst = vi.fn(async (args: { where?: { clientLocationId?: string } }) => {
+        if (args?.where?.clientLocationId || estimates.length === 0) {
+          return null;
+        }
+        return {
+          idUbicacion: 4n,
+          fuente: 'NETWORK',
+          fechaHoraDispositivo: new Date(estimates[0]),
+          fechaHoraServidor: new Date('2026-11-15T22:00:00.000Z'),
+        };
+      });
+      const store = vi.fn(async (_assignment: number, _deviceId: number, input: { latitud: number; longitud: number; fechaHoraDispositivo: string }) => {
+        estimates.unshift(input.fechaHoraDispositivo);
+        return { location: { fechaHoraServidor: input.fechaHoraDispositivo }, created: true };
+      });
+      const { service } = serviceFor({
+        key: 'server-key',
+        locate,
+        store,
+        prisma: {
+          emergencia: { findMany: vi.fn() },
+          ubicacion: { findFirst, update: vi.fn().mockResolvedValue({ fechaHoraServidor: new Date() }) },
+        },
+      });
+      const wifi = [
+        { macAddress: '00:1a:2b:3c:4d:01', signalStrength: -70 },
+        { macAddress: '00:1a:2b:3c:4d:02', signalStrength: -62 },
+      ];
+      await service.report(device, { ...observation, wifiAccessPoints: wifi });
+      vi.setSystemTime(new Date('2026-11-15T22:00:59.000Z'));
+      await expect(service.report(device, { ...observation, clientLocationId: 'b0000000100000003', wifiAccessPoints: wifi })).resolves.toMatchObject({
+        status: 'cached',
+      });
+      vi.setSystemTime(new Date('2026-11-15T22:01:00.000Z'));
+      await expect(service.report(device, { ...observation, clientLocationId: 'b0000000100000004', wifiAccessPoints: wifi })).resolves.toMatchObject({
+        status: 'located',
+      });
+      expect(locate).toHaveBeenCalledTimes(2);
+      expect(store.mock.calls[1][2].latitud).toBe(store.mock.calls[0][2].latitud);
+      expect(store.mock.calls[1][2].fechaHoraDispositivo).not.toBe(store.mock.calls[0][2].fechaHoraDispositivo);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sin redes válidas conserva la consulta de solo celda', async () => {
+    const locate = vi.fn().mockResolvedValue({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 800 });
+    const { service } = serviceFor({ key: 'server-key', locate });
+    await expect(service.report(device, {
+      ...observation,
+      wifiAccessPoints: [{ macAddress: '02:11:22:33:44:55', signalStrength: -40 }],
+    })).resolves.toMatchObject({ status: 'located', retryAfterSeconds: 10 });
+    expect(locate.mock.calls[0][3]).toEqual([]);
+  });
+
   it('no pisa un GNSS que llegó después de la lectura de celda', async () => {
     const locate = vi.fn().mockResolvedValue({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 900 });
     const findFirst = vi.fn().mockResolvedValue({
@@ -189,11 +321,18 @@ describe('NetworkLocationService', () => {
       prisma: { emergencia: { findMany: vi.fn() }, ubicacion: { findFirst } },
     });
 
-    await expect(service.report(device, observation)).resolves.toMatchObject({
+    await expect(service.report(device, {
+      ...observation,
+      wifiAccessPoints: [
+        { macAddress: '00:1a:2b:3c:4d:01', signalStrength: -70 },
+        { macAddress: '00:1a:2b:3c:4d:02', signalStrength: -62 },
+      ],
+    })).resolves.toMatchObject({
       status: 'located',
       receivedAt: '2026-11-15T22:00:05.000Z',
     });
     expect(store).not.toHaveBeenCalled();
+    expect(locate).toHaveBeenCalledOnce();
   });
 
   it('un rechazo de configuración espera 900 s y no se registra como caída temporal', async () => {
