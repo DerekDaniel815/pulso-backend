@@ -65,7 +65,10 @@ export class DeviceNetworkCellResponseDto {
   @ApiProperty({ enum: ['disabled', 'located', 'cached', 'unavailable', 'retry'] })
   status: 'disabled' | 'located' | 'cached' | 'unavailable' | 'retry';
 
-  @ApiProperty({ description: 'Segundos entre reportes aceptados. located y cached usan 10.' })
+  @ApiProperty({
+    description:
+      'located y cached usan 10. Una caída temporal usa 60. Cuota o un rechazo de clave, restricción, API o facturación usa 900.',
+  })
   retryAfterSeconds: number;
 
   @ApiProperty()

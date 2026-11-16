@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { EstadoDispositivo } from '../common/enums.js';
 import type { AuthenticatedDevice } from '../common/types/authenticated-device.js';
@@ -135,6 +136,40 @@ describe('NetworkLocationService', () => {
       receivedAt: '2026-11-15T22:00:05.000Z',
     });
     expect(store).not.toHaveBeenCalled();
+  });
+
+  it('un rechazo de configuración espera 900 s y no se registra como caída temporal', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const rejected = serviceFor({
+      key: 'server-key',
+      locate: vi.fn().mockResolvedValue({
+        kind: 'rejected',
+        diagnostic: { httpStatus: 403, category: 'restriccion-aplicacion', reason: 'API_KEY_HTTP_REFERRER_BLOCKED' },
+      }),
+    });
+    await expect(rejected.service.report(device, observation)).resolves.toMatchObject({
+      status: 'retry',
+      retryAfterSeconds: 900,
+    });
+    expect(rejected.store).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[GEOLOCATION] http=403 categoria=restriccion-aplicacion reason=API_KEY_HTTP_REFERRER_BLOCKED',
+    );
+    const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(logged).not.toMatch(/server-key|716|23100|1234567|geolocate|AIza/);
+
+    const outage = serviceFor({
+      key: 'server-key',
+      locate: vi.fn().mockResolvedValue({
+        kind: 'failed',
+        diagnostic: { httpStatus: 503, category: 'temporal', reason: null },
+      }),
+    });
+    await expect(outage.service.report(device, observation)).resolves.toMatchObject({
+      status: 'retry',
+      retryAfterSeconds: 60,
+    });
+    warn.mockRestore();
   });
 
   it('espera más ante cuota y no guarda una ausencia', async () => {

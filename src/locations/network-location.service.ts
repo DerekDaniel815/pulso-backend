@@ -7,11 +7,35 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { DeviceNetworkCellDto, DeviceNetworkCellResponseDto } from '../device-api/dto/device-network-cell.dto.js';
 import { LocationAccessService } from './location-access.service.js';
 import { LocationsService } from './locations.service.js';
-import { GoogleGeolocationClient, type GoogleGeolocationOutcome } from './google-geolocation.client.js';
+import {
+  formatGoogleDiagnostic,
+  GoogleGeolocationClient,
+  type GoogleGeolocationOutcome,
+} from './google-geolocation.client.js';
 
 const CACHE_MS = 10 * 60 * 1000;
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const RENEW_SECONDS = 10;
+const TEMPORARY_RETRY_SECONDS = 60;
+const CONFIGURATION_RETRY_SECONDS = 900;
+
+function retryAfterFailure(outcome: GoogleGeolocationOutcome): number | null {
+  if (outcome.kind === 'quota' || outcome.kind === 'rejected') {
+    return CONFIGURATION_RETRY_SECONDS;
+  }
+  if (outcome.kind === 'unavailable') {
+    return 120;
+  }
+  if (outcome.kind === 'timeout') {
+    return TEMPORARY_RETRY_SECONDS;
+  }
+  if (outcome.kind === 'failed') {
+    return outcome.diagnostic != null && outcome.diagnostic.category !== 'temporal'
+      ? CONFIGURATION_RETRY_SECONDS
+      : TEMPORARY_RETRY_SECONDS;
+  }
+  return null;
+}
 
 interface CachedFix {
   latitude: number;
@@ -67,14 +91,16 @@ export class NetworkLocationService {
           }, apiKey)
         : { kind: 'cached', ...cached };
 
-    if (outcome.kind === 'quota') {
-      return { ...base, status: 'retry', retryAfterSeconds: 900 };
-    }
-    if (outcome.kind === 'timeout' || outcome.kind === 'failed') {
-      return { ...base, status: 'retry', retryAfterSeconds: 60 };
-    }
-    if (outcome.kind === 'unavailable') {
-      return { ...base, status: 'unavailable', retryAfterSeconds: 120 };
+    if (outcome.kind !== 'cached') {
+      this.logDiagnostic(outcome);
+      const retryAfterSeconds = retryAfterFailure(outcome);
+      if (retryAfterSeconds != null) {
+        return {
+          ...base,
+          status: outcome.kind === 'unavailable' ? 'unavailable' : 'retry',
+          retryAfterSeconds,
+        };
+      }
     }
 
     const estimatedAt = outcome.kind === 'located' ? new Date().toISOString() : outcome.estimatedAt;
@@ -190,6 +216,16 @@ export class NetworkLocationService {
       await this.devicesService.touchConnection(device.idDispositivo);
     }
     return stored.location.fechaHoraServidor;
+  }
+
+  private logDiagnostic(outcome: GoogleGeolocationOutcome): void {
+    if (outcome.kind !== 'located' && outcome.diagnostic == null) {
+      return;
+    }
+    if (outcome.diagnostic == null) {
+      return;
+    }
+    this.logger.warn(formatGoogleDiagnostic(outcome.diagnostic));
   }
 
   private remembered(cacheKey: string): CachedFix | null {
