@@ -180,6 +180,7 @@ describe('NetworkLocationService', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-11-15T22:00:00.000Z'));
     try {
+      const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
       const locate = vi.fn()
         .mockResolvedValueOnce({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 40 })
         .mockResolvedValueOnce({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 28 });
@@ -226,6 +227,9 @@ describe('NetworkLocationService', () => {
         ],
       })).resolves.toMatchObject({ status: 'cached', retryAfterSeconds: 10 });
       expect(locate).toHaveBeenCalledOnce();
+      expect(log.mock.calls.filter((call) => String(call[0]).startsWith('[NETWORK] redes='))).toEqual([
+        ['[NETWORK] redes=2'],
+      ]);
 
       await expect(service.report(device, {
         ...observation,
@@ -242,6 +246,11 @@ describe('NetworkLocationService', () => {
         { macAddress: '00:1a:2b:3c:4d:09', signalStrength: -55 },
         { macAddress: '00:1a:2b:3c:4d:01', signalStrength: -70 },
       ]);
+      expect(log.mock.calls.filter((call) => String(call[0]).startsWith('[NETWORK] redes=')).map((call) => String(call[0]))).toEqual([
+        '[NETWORK] redes=2',
+        '[NETWORK] redes=2',
+      ]);
+      log.mockRestore();
     } finally {
       vi.useRealTimers();
     }
@@ -299,6 +308,7 @@ describe('NetworkLocationService', () => {
   });
 
   it('sin redes válidas conserva la consulta de solo celda', async () => {
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     const locate = vi.fn().mockResolvedValue({ kind: 'located', latitude: -12.05, longitude: -77.04, accuracy: 800 });
     const { service } = serviceFor({ key: 'server-key', locate });
     await expect(service.report(device, {
@@ -306,6 +316,9 @@ describe('NetworkLocationService', () => {
       wifiAccessPoints: [{ macAddress: '02:11:22:33:44:55', signalStrength: -40 }],
     })).resolves.toMatchObject({ status: 'located', retryAfterSeconds: 10 });
     expect(locate.mock.calls[0][3]).toEqual([]);
+    expect(log).toHaveBeenCalledWith('[NETWORK] redes=0');
+    expect(log.mock.calls.map((call) => String(call[0])).join('\n')).not.toMatch(/02:11:22|macAddress/);
+    log.mockRestore();
   });
 
   it('no pisa un GNSS que llegó después de la lectura de celda', async () => {

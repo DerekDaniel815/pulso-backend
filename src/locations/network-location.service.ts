@@ -83,6 +83,9 @@ export class NetworkLocationService {
     const wifi = usableWifiAccessPoints(dto.wifiAccessPoints);
     const cacheKey = `${device.idDispositivo}:${dto.mcc}:${dto.mnc}:${dto.tac}:${dto.eci}:${wifiCacheIdentity(wifi)}`;
     const cached = this.remembered(cacheKey);
+    if (cached == null) {
+      this.logger.log(`[NETWORK] redes=${wifi.length}`);
+    }
     const outcome: GoogleGeolocationOutcome | { kind: 'cached'; latitude: number; longitude: number; accuracy: number; estimatedAt: string } =
       cached == null
         ? await this.client.locate({
