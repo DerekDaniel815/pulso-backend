@@ -93,14 +93,13 @@ export class NetworkLocationService {
 
     if (outcome.kind !== 'cached') {
       this.logDiagnostic(outcome);
-      const retryAfterSeconds = retryAfterFailure(outcome);
-      if (retryAfterSeconds != null) {
-        return {
-          ...base,
-          status: outcome.kind === 'unavailable' ? 'unavailable' : 'retry',
-          retryAfterSeconds,
-        };
-      }
+    }
+    if (outcome.kind !== 'located' && outcome.kind !== 'cached') {
+      return {
+        ...base,
+        status: outcome.kind === 'unavailable' ? 'unavailable' : 'retry',
+        retryAfterSeconds: retryAfterFailure(outcome) ?? TEMPORARY_RETRY_SECONDS,
+      };
     }
 
     const estimatedAt = outcome.kind === 'located' ? new Date().toISOString() : outcome.estimatedAt;
