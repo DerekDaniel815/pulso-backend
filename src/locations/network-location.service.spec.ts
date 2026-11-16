@@ -228,7 +228,7 @@ describe('NetworkLocationService', () => {
       })).resolves.toMatchObject({ status: 'cached', retryAfterSeconds: 10 });
       expect(locate).toHaveBeenCalledOnce();
       expect(log.mock.calls.filter((call) => String(call[0]).startsWith('[NETWORK] redes='))).toEqual([
-        ['[NETWORK] redes=2'],
+        ['[NETWORK] redes=2 radio=40 estimacion=2026-11-15T22:00:00.000Z'],
       ]);
 
       await expect(service.report(device, {
@@ -247,8 +247,8 @@ describe('NetworkLocationService', () => {
         { macAddress: '00:1a:2b:3c:4d:01', signalStrength: -70 },
       ]);
       expect(log.mock.calls.filter((call) => String(call[0]).startsWith('[NETWORK] redes=')).map((call) => String(call[0]))).toEqual([
-        '[NETWORK] redes=2',
-        '[NETWORK] redes=2',
+        '[NETWORK] redes=2 radio=40 estimacion=2026-11-15T22:00:00.000Z',
+        '[NETWORK] redes=2 radio=28 estimacion=2026-11-15T22:00:10.000Z',
       ]);
       log.mockRestore();
     } finally {
@@ -316,8 +316,9 @@ describe('NetworkLocationService', () => {
       wifiAccessPoints: [{ macAddress: '02:11:22:33:44:55', signalStrength: -40 }],
     })).resolves.toMatchObject({ status: 'located', retryAfterSeconds: 10 });
     expect(locate.mock.calls[0][3]).toEqual([]);
-    expect(log).toHaveBeenCalledWith('[NETWORK] redes=0');
-    expect(log.mock.calls.map((call) => String(call[0])).join('\n')).not.toMatch(/02:11:22|macAddress/);
+    const diagnostic = log.mock.calls.map((call) => String(call[0])).find((line) => line.startsWith('[NETWORK] redes='));
+    expect(diagnostic).toMatch(/^\[NETWORK\] redes=0 radio=800 estimacion=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(diagnostic).not.toMatch(/02:11:22|macAddress|-12\.05|-77\.04/);
     log.mockRestore();
   });
 

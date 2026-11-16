@@ -21,6 +21,13 @@ const RENEW_SECONDS = 10;
 const TEMPORARY_RETRY_SECONDS = 60;
 const CONFIGURATION_RETRY_SECONDS = 900;
 
+function formatRadio(accuracy: number): string | null {
+  if (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 1_000_000) {
+    return null;
+  }
+  return String(Math.round(accuracy * 100) / 100);
+}
+
 function retryAfterFailure(outcome: GoogleGeolocationOutcome): number | null {
   if (outcome.kind === 'quota' || outcome.kind === 'rejected') {
     return CONFIGURATION_RETRY_SECONDS;
@@ -83,9 +90,6 @@ export class NetworkLocationService {
     const wifi = usableWifiAccessPoints(dto.wifiAccessPoints);
     const cacheKey = `${device.idDispositivo}:${dto.mcc}:${dto.mnc}:${dto.tac}:${dto.eci}:${wifiCacheIdentity(wifi)}`;
     const cached = this.remembered(cacheKey);
-    if (cached == null) {
-      this.logger.log(`[NETWORK] redes=${wifi.length}`);
-    }
     const outcome: GoogleGeolocationOutcome | { kind: 'cached'; latitude: number; longitude: number; accuracy: number; estimatedAt: string } =
       cached == null
         ? await this.client.locate({
@@ -117,6 +121,11 @@ export class NetworkLocationService {
         estimatedAt,
         expiresAt: Date.now() + CACHE_MS,
       });
+      const radio = formatRadio(outcome.accuracy);
+      if (radio != null && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(estimatedAt)) {
+        const sent = wifi.length >= 2 ? wifi.length : 0;
+        this.logger.log(`[NETWORK] redes=${sent} radio=${radio} estimacion=${estimatedAt}`);
+      }
     }
 
     const receivedAt = await this.rememberLocation(device, dto, {
