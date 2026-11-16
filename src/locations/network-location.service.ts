@@ -13,7 +13,7 @@ import {
   type GoogleGeolocationOutcome,
 } from './google-geolocation.client.js';
 
-const CACHE_MS = 10 * 60 * 1000;
+const CACHE_MS = 60 * 1000;
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const RENEW_SECONDS = 10;
 const TEMPORARY_RETRY_SECONDS = 60;
