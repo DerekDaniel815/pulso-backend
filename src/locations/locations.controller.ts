@@ -82,7 +82,11 @@ export class LocationsController {
   }
 
   @Get('user-device/:id/history')
-  @ApiOperation({ summary: 'Historial de ubicaciones de una asignación' })
+  @ApiOperation({
+    summary: 'Historial de ubicaciones de una asignación',
+    description:
+      'No devuelve cada reporte guardado. Conserva el más reciente y omite los siguientes que no se alejan de forma clara: 50 m en GNSS, o el radio informado en una ubicación de red.',
+  })
   @ApiOkResponse({ type: [LocationResponseDto] })
   findHistory(
     @CurrentUser() user: AuthenticatedUser,

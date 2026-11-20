@@ -19,6 +19,7 @@ import { assertDeviceTimestampNotInFuture, liveCutoff } from './location-freshne
 import type { CreateLocationDto } from './dto/create-location.dto.js';
 import type { LocationInput } from './dto/location-input.dto.js';
 import type { LocationHistoryQueryDto } from './dto/location-history-query.dto.js';
+import { HISTORY_RAW_LIMIT, selectSignificantHistory } from './history-trail.js';
 import { toLocationResponse, type LocationResponseDto } from './dto/location-response.dto.js';
 import { toPublicLocationPoint } from './dto/visible-location.dto.js';
 import type {
@@ -476,10 +477,10 @@ export class LocationsService {
         ...(query.from || query.to ? { fechaHoraDispositivo: fechaFilter } : {}),
       },
       orderBy: { fechaHoraDispositivo: 'desc' },
-      take: 500,
+      take: HISTORY_RAW_LIMIT,
     });
 
-    return rows.map((row) => toLocationResponse(row));
+    return selectSignificantHistory(rows.map((row) => toLocationResponse(row)));
   }
 
   private async assertCanView(viewerId: number, idUsuarioDispositivo: number) {
